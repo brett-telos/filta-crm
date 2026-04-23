@@ -38,7 +38,7 @@ export default async function DashboardPage() {
 
   // FiltaClean cross-sell target count: FF-active customers without FS
   // who have no open FS opp. Shown on the dashboard as a nudge.
-  const [crossSellRow] = await db.execute(sql`
+  const crossSellResult = await db.execute(sql`
     select count(*)::int as count
     from accounts a
     where a.account_status = 'customer'
@@ -52,7 +52,7 @@ export default async function DashboardPage() {
           and o.stage not in ('closed_won','closed_lost')
       )
   `);
-  const crossSellTargets = Number((crossSellRow as any)?.count ?? 0);
+  const crossSellTargets = Number((crossSellResult.rows?.[0] as any)?.count ?? 0);
 
   return (
     <div className="space-y-8">
