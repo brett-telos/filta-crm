@@ -7,7 +7,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type Item = { href: string; label: string };
+type Item = {
+  href: string;
+  label: string;
+  // Optional small count badge (e.g. open follow-ups on /today). Falsy or
+  // zero renders nothing so the nav stays quiet when the queue is empty.
+  badge?: number;
+  // Whether to flag this badge as urgent (e.g. overdue tasks). Urgent =
+  // rose; normal = filta-blue.
+  badgeUrgent?: boolean;
+};
 
 export function NavLinks({
   items,
@@ -19,9 +28,9 @@ export function NavLinks({
   const pathname = usePathname() || "/";
 
   const baseDesktop =
-    "rounded-md px-2 py-1 text-sm transition-colors";
+    "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors";
   const baseMobile =
-    "shrink-0 rounded-md px-3 py-1.5 text-sm transition-colors";
+    "inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors";
 
   return (
     <>
@@ -30,6 +39,30 @@ export function NavLinks({
           pathname === item.href ||
           (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`)) ||
           (item.href !== "/dashboard" && pathname === item.href);
+
+        const showBadge = typeof item.badge === "number" && item.badge > 0;
+        // Badge color logic:
+        //  - urgent + inactive → rose pill
+        //  - normal + inactive → filta-blue pill
+        //  - active (nav item selected) → white pill so it reads against blue bg
+        const badgeCls = active
+          ? "bg-white/90 text-filta-blue"
+          : item.badgeUrgent
+            ? "bg-rose-100 text-rose-800"
+            : "bg-filta-light-blue text-filta-blue";
+
+        const content = (
+          <>
+            <span>{item.label}</span>
+            {showBadge && (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${badgeCls}`}
+              >
+                {item.badge}
+              </span>
+            )}
+          </>
+        );
 
         if (layout === "desktop") {
           return (
@@ -42,7 +75,7 @@ export function NavLinks({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              {item.label}
+              {content}
             </Link>
           );
         }
@@ -57,7 +90,7 @@ export function NavLinks({
                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
-            {item.label}
+            {content}
           </Link>
         );
       })}

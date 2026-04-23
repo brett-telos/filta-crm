@@ -20,6 +20,7 @@ export type PipelineCard = {
   ownerEmail: string | null;
   estimatedValueAnnual: string | null;
   stageChangedAt: string; // ISO
+  openTaskCount: number;
 };
 
 type Stage =
@@ -188,9 +189,34 @@ export default function PipelineBoard({
                           {formatCurrency(Number(c.estimatedValueAnnual ?? 0))}
                         </span>
                       </div>
-                      <div className="mt-1 text-[10px] text-slate-500">
-                        {c.ownerFirstName ?? c.ownerEmail ?? "unassigned"} ·{" "}
-                        {ageInStage(c.stageChangedAt)}
+                      <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                        <span>
+                          {c.ownerFirstName ?? c.ownerEmail ?? "unassigned"} ·{" "}
+                          {ageInStage(c.stageChangedAt)}
+                        </span>
+                        {c.openTaskCount > 0 && (
+                          <span
+                            title={`${c.openTaskCount} open follow-up${
+                              c.openTaskCount === 1 ? "" : "s"
+                            }`}
+                            className="inline-flex items-center gap-0.5 rounded-full bg-filta-light-blue px-1.5 py-0.5 text-[10px] font-semibold text-filta-blue"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={2.5}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="h-2.5 w-2.5"
+                            >
+                              <path d="M9 11l3 3L22 4" />
+                              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                            </svg>
+                            {c.openTaskCount}
+                          </span>
+                        )}
                       </div>
                       {/* Mobile-only stage picker: tap target for users who can't drag */}
                       <label className="mt-2 block md:hidden">

@@ -13,6 +13,7 @@ import {
   opportunities,
   activities,
   users,
+  emailSends,
 } from "@/db";
 import { requireSession, canAccessTerritory } from "@/lib/session";
 import {
@@ -28,6 +29,9 @@ import {
 } from "@/lib/format";
 import LogActivityForm from "./LogActivityForm";
 import { updateAccountAction } from "./actions";
+import { getOpenTasksForAccount } from "../../tasks/actions";
+import { TaskRow } from "../../today/TaskRow";
+import { QuickAddTask } from "../../today/QuickAddTask";
 
 export const dynamic = "force-dynamic";
 
@@ -55,41 +59,63 @@ export default async function AccountDetailPage({
     notFound();
   }
 
-  const [contactRows, oppRows, activityRows] = await Promise.all([
-    db
-      .select()
-      .from(contacts)
-      .where(and(eq(contacts.accountId, acct.id), isNull(contacts.deletedAt)))
-      .orderBy(desc(contacts.isPrimary)),
-    db
-      .select()
-      .from(opportunities)
-      .where(
-        and(
-          eq(opportunities.accountId, acct.id),
-          isNull(opportunities.deletedAt),
-        ),
-      )
-      .orderBy(desc(opportunities.stageChangedAt)),
-    db
-      .select({
-        id: activities.id,
-        type: activities.type,
-        direction: activities.direction,
-        disposition: activities.disposition,
-        subject: activities.subject,
-        body: activities.body,
-        occurredAt: activities.occurredAt,
-        durationMinutes: activities.durationMinutes,
-        ownerEmail: users.email,
-        ownerFirstName: users.firstName,
-      })
-      .from(activities)
-      .leftJoin(users, eq(activities.ownerUserId, users.id))
-      .where(eq(activities.accountId, acct.id))
-      .orderBy(desc(activities.occurredAt))
-      .limit(100),
-  ]);
+  const [contactRows, oppRows, activityRows, openTasks, emailRows] =
+    await Promise.all([
+      db
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.accountId, acct.id), isNull(contacts.deletedAt)))
+        .orderBy(desc(contacts.isPrimary)),
+      db
+        .select()
+        .from(opportunities)
+        .where(
+          and(
+            eq(opportunities.accountId, acct.id),
+            isNull(opportunities.deletedAt),
+          ),
+        )
+        .orderBy(desc(opportunities.stageChangedAt)),
+      db
+        .select({
+          id: activities.id,
+          type: activities.type,
+          direction: activities.direction,
+          disposition: activities.disposition,
+          subject: activities.subject,
+          body: activities.body,
+          occurredAt: activities.occurredAt,
+          durationMinutes: activities.durationMinutes,
+          ownerEmail: users.email,
+          ownerFirstName: users.firstName,
+        })
+        .from(activities)
+        .leftJoin(users, eq(activities.ownerUserId, users.id))
+        .where(eq(activities.accountId, acct.id))
+        .orderBy(desc(activities.occurredAt))
+        .limit(100),
+      getOpenTasksForAccount(acct.id),
+      // Last 10 sent (or attempted) emails — shown as a compact history card.
+      // Ordered by createdAt so a queued/failed row still shows up in the
+      // expected slot even if sentAt never got stamped.
+      db
+        .select({
+          id: emailSends.id,
+          subject: emailSends.subject,
+          toEmail: emailSends.toEmail,
+          status: emailSends.status,
+          providerError: emailSends.providerError,
+          sentAt: emailSends.sentAt,
+          createdAt: emailSends.createdAt,
+          senderFirstName: users.firstName,
+          senderEmail: users.email,
+        })
+        .from(emailSends)
+        .leftJoin(users, eq(emailSends.sentByUserId, users.id))
+        .where(eq(emailSends.accountId, acct.id))
+        .orderBy(desc(emailSends.createdAt))
+        .limit(10),
+    ]);
 
   const sp = (acct.serviceProfile as Record<string, any>) ?? {};
 
@@ -255,6 +281,24 @@ export default async function AccountDetailPage({
 
         {/* Right column — actions. Mobile order-1 puts this first. */}
         <div className="order-1 space-y-4 lg:order-2 lg:col-span-2">
+          <Card title={`Next steps${openTasks.length ? ` (${openTasks.length})` : ""}`}>
+            {openTasks.length === 0 ? (
+              <p className="mb-3 text-sm text-slate-500">
+                No follow-ups scheduled. Add one to make sure this account
+                doesn&apos;t go cold.
+              </p>
+            ) : (
+              <ul className="mb-3 divide-y divide-slate-100">
+                {openTasks.map((t) => (
+                  <li key={t.id}>
+                    <TaskRow task={t} hideAccountName showBucketDate />
+                  </li>
+                ))}
+              </ul>
+            )}
+            <QuickAddTask accountId={acct.id} />
+          </Card>
+
           <Card title="Log an activity">
             <LogActivityForm accountId={acct.id} />
           </Card>
@@ -289,6 +333,55 @@ export default async function AccountDetailPage({
                     </div>
                   </li>
                 ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card
+            title={`Emails sent${emailRows.length ? ` (${emailRows.length})` : ""}`}
+          >
+            {emailRows.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No emails sent from the CRM yet. Use the cross-sell dashboard
+                to fire a templated send and it will show up here.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100 text-sm">
+                {emailRows.map((e) => {
+                  const when = e.sentAt ?? e.createdAt;
+                  return (
+                    <li
+                      key={e.id}
+                      className="flex items-start justify-between gap-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-slate-900">
+                          {e.subject}
+                        </div>
+                        <div className="truncate text-xs text-slate-500">
+                          to {e.toEmail}
+                          {e.senderFirstName ? (
+                            <> · by {e.senderFirstName}</>
+                          ) : null}
+                        </div>
+                        {e.status === "failed" && e.providerError ? (
+                          <div className="mt-0.5 text-xs text-red-700">
+                            {e.providerError}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <EmailStatusPill status={e.status} />
+                        <span
+                          className="text-xs text-slate-500"
+                          title={formatDateTime(when)}
+                        >
+                          {formatRelative(when)}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </Card>
@@ -411,6 +504,55 @@ function Dt({
   className?: string;
 }) {
   return <div className={`text-slate-700 ${className}`}>{children}</div>;
+}
+
+// Compact status pill for email_sends rows. Colors chosen to match the rest
+// of the app — emerald for happy path, amber for in-flight/unknown, rose for
+// hard failures so a rep can scan the list and spot problems at a glance.
+type EmailStatus =
+  | "queued"
+  | "sent"
+  | "delivered"
+  | "bounced"
+  | "complained"
+  | "failed";
+
+const EMAIL_STATUS_STYLE: Record<EmailStatus, { cls: string; label: string }> = {
+  queued: {
+    cls: "bg-amber-50 text-amber-700 border-amber-200",
+    label: "Queued",
+  },
+  sent: {
+    cls: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    label: "Sent",
+  },
+  delivered: {
+    cls: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    label: "Delivered",
+  },
+  bounced: {
+    cls: "bg-rose-50 text-rose-700 border-rose-200",
+    label: "Bounced",
+  },
+  complained: {
+    cls: "bg-rose-50 text-rose-700 border-rose-200",
+    label: "Complained",
+  },
+  failed: {
+    cls: "bg-rose-50 text-rose-700 border-rose-200",
+    label: "Failed",
+  },
+};
+
+function EmailStatusPill({ status }: { status: EmailStatus }) {
+  const { cls, label } = EMAIL_STATUS_STYLE[status];
+  return (
+    <span
+      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${cls}`}
+    >
+      {label}
+    </span>
+  );
 }
 
 function activityDot(type: string): string {

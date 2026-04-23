@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { getSession } from "@/lib/session";
+import { getTaskCountsForUser } from "@/app/(authed)/tasks/actions";
 import { NavLinks } from "./NavLinks";
 
 // Top nav bar rendered on all authed pages. Server component so we can read
@@ -10,15 +11,37 @@ import { NavLinks } from "./NavLinks";
 // route via usePathname() without turning this whole header into a client
 // component.
 
-const NAV = [
-  { href: "/dashboard", label: "Home" },
-  { href: "/accounts", label: "Accounts" },
-  { href: "/pipeline", label: "Pipeline" },
-  { href: "/cross-sell", label: "Cross-Sell" },
-];
-
 export default async function AppNav() {
   const session = await getSession();
+
+  // Task badge next to "Today": overdue + due-today combined. We only pull
+  // counts when the user is signed in; unauthenticated visitors never hit
+  // this path anyway (middleware guards /authed routes).
+  let todayBadge = 0;
+  let todayUrgent = false;
+  if (session) {
+    try {
+      const counts = await getTaskCountsForUser();
+      todayBadge = counts.overdue + counts.today;
+      todayUrgent = counts.overdue > 0;
+    } catch {
+      // Swallow — a failing badge shouldn't break the nav. The Today page
+      // itself will show the real error if the query is broken.
+    }
+  }
+
+  const NAV = [
+    { href: "/dashboard", label: "Home" },
+    {
+      href: "/today",
+      label: "Today",
+      badge: todayBadge,
+      badgeUrgent: todayUrgent,
+    },
+    { href: "/accounts", label: "Accounts" },
+    { href: "/pipeline", label: "Pipeline" },
+    { href: "/cross-sell", label: "Cross-Sell" },
+  ];
 
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">

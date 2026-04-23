@@ -3,8 +3,8 @@
 // Drag-drop column moves are handled client-side with optimistic UI.
 
 import Link from "next/link";
-import { and, desc, eq, isNull, or } from "drizzle-orm";
-import { db, accounts, opportunities, users } from "@/db";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { db, accounts, opportunities, tasks, users } from "@/db";
 import { requireSession } from "@/lib/session";
 import PipelineBoard, { type PipelineCard } from "./PipelineBoard";
 
@@ -73,6 +73,29 @@ export default async function PipelinePage({
     );
   });
 
+  // Batch-fetch open task counts for the visible opportunities. One round trip,
+  // grouped by opportunity_id. Skipped when there are no visible cards.
+  const taskCountByOpp = new Map<string, number>();
+  if (visible.length > 0) {
+    const ids = visible.map((r) => r.id);
+    const counts = await db
+      .select({
+        opportunityId: tasks.opportunityId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tasks)
+      .where(
+        and(
+          inArray(tasks.opportunityId, ids),
+          eq(tasks.status, "open"),
+        ),
+      )
+      .groupBy(tasks.opportunityId);
+    for (const row of counts) {
+      if (row.opportunityId) taskCountByOpp.set(row.opportunityId, row.count);
+    }
+  }
+
   const cards: PipelineCard[] = visible.map((r) => ({
     id: r.id,
     name: r.name,
@@ -84,6 +107,7 @@ export default async function PipelinePage({
     ownerEmail: r.ownerEmail,
     estimatedValueAnnual: r.estimatedValueAnnual ? String(r.estimatedValueAnnual) : null,
     stageChangedAt: (r.stageChangedAt as Date).toISOString(),
+    openTaskCount: taskCountByOpp.get(r.id) ?? 0,
   }));
 
   return (

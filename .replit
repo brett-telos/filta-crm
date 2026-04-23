@@ -49,8 +49,3 @@ waitForPort = 5000
 
 [workflows.workflow.metadata]
 outputType = "webview"
-
-[userenv]
-
-[userenv.shared]
-NEXTAUTH_SECRET = "CT0L0rhwDpoIE3QHBGicDVr7vgX4WW4nkbJgks/V+JY="

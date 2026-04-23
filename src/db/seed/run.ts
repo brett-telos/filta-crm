@@ -10,6 +10,7 @@ import {
   users,
 } from "../index";
 import { CITY_MAPPINGS } from "./cities";
+import { seedMessageTemplates } from "./templates";
 
 async function seedCities() {
   console.log(`Seeding ${CITY_MAPPINGS.length} cities...`);
@@ -80,6 +81,10 @@ async function main() {
   await seedPricing();
   await seedCompetitors();
   await seedAdmin();
+  // Templates last — they depend on nothing but the message_templates table
+  // existing, and keeping them at the end makes it obvious in the output
+  // log which copy landed.
+  await seedMessageTemplates();
   await pool.end();
   console.log("Seed complete.");
 }

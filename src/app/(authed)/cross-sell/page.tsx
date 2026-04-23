@@ -17,6 +17,7 @@ import {
   formatPhone,
 } from "@/lib/format";
 import CreateFsButton from "./CreateFsButton";
+import SendEmailButton from "./SendEmailButton";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,9 @@ type Row = {
   fb_monthly: string | null;
   owner_first_name: string | null;
   owner_email: string | null;
+  // Primary-contact email (or any contact email as fallback). Powers the
+  // "Send FS email" button — disabled when null/empty.
+  contact_email: string | null;
 };
 
 type Sort = "rev_desc" | "rev_asc" | "company" | "territory";
@@ -71,6 +75,11 @@ export default async function CrossSellPage({
           ? sql`order by a.territory asc, ff_monthly desc nulls last`
           : sql`order by ff_monthly desc nulls last, a.company_name asc`;
 
+  // Pull one contact email per account: primary if present, else the most
+  // recently updated contact with a non-empty email. `distinct on` lets us
+  // pick the "best" contact per account in a single pass and feed it into
+  // the main query as a lateral join — cheaper than a correlated subquery on
+  // 90-odd rows and keeps the plan explainable.
   const result = await db.execute(sql`
     select
       a.id,
@@ -81,9 +90,20 @@ export default async function CrossSellPage({
       (a.service_profile->'ff'->>'monthly_revenue')::numeric as ff_monthly,
       (a.service_profile->'fb'->>'monthly_revenue')::numeric as fb_monthly,
       u.first_name as owner_first_name,
-      u.email as owner_email
+      u.email as owner_email,
+      c.email as contact_email
     from accounts a
     left join users u on u.id = a.owner_user_id
+    left join lateral (
+      select email
+      from contacts
+      where account_id = a.id
+        and deleted_at is null
+        and email is not null
+        and length(trim(email)) > 0
+      order by is_primary desc, updated_at desc
+      limit 1
+    ) c on true
     where a.account_status = 'customer'
       and (a.service_profile->'ff'->>'active')::boolean = true
       and coalesce((a.service_profile->'fs'->>'active')::boolean, false) = false
@@ -248,7 +268,14 @@ export default async function CrossSellPage({
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <CreateFsButton accountId={r.id} />
+                        <div className="flex flex-col items-end gap-1.5">
+                          <CreateFsButton accountId={r.id} />
+                          <SendEmailButton
+                            accountId={r.id}
+                            companyName={r.company_name}
+                            contactEmail={r.contact_email}
+                          />
+                        </div>
                       </td>
                     </tr>
                   );

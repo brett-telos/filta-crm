@@ -159,6 +159,46 @@ export const userTerritoryScopeEnum = pgEnum("user_territory_scope", [
   "both",
 ]);
 
+// Task status — open (due or future), done (completed), snoozed (pushed to a
+// later due_date). Snoozed tasks show up again when their due_date lands.
+export const taskStatusEnum = pgEnum("task_status", [
+  "open",
+  "done",
+  "snoozed",
+]);
+
+// Priority — used to sort the Today view within each bucket. Kept small and
+// ordinal (low/normal/high). Default 'normal'.
+export const taskPriorityEnum = pgEnum("task_priority", [
+  "low",
+  "normal",
+  "high",
+]);
+
+// Email / message infra (Week 3.1). Email status tracks the send lifecycle
+// from "queued in our DB" → "handed to Resend" → "delivered / bounced /
+// complained". We keep it conservative: Resend gives us more detailed
+// webhook events, but these five buckets are what the sales rep actually
+// cares about.
+export const emailStatusEnum = pgEnum("email_status", [
+  "queued",
+  "sent",
+  "delivered",
+  "bounced",
+  "complained",
+  "failed",
+]);
+
+// Template purpose — what this template is for. Drives which UI surfaces
+// show it (cross-sell dashboard pulls fs_cross_sell; future flows will add
+// their own enum values).
+export const messageTemplatePurposeEnum = pgEnum("message_template_purpose", [
+  "fs_cross_sell",
+  "general_followup",
+  "proposal_sent",
+  "other",
+]);
+
 // ============================================================================
 // USERS
 // ============================================================================
@@ -375,6 +415,177 @@ export const activities = pgTable(
 );
 
 // ============================================================================
+// TASKS (the follow-up)
+// ============================================================================
+
+// Tasks are the "next step" for an account or opportunity — call back on
+// Tuesday, send FS quote, drop by after lunch. They surface on the Today
+// view and on account/opp detail pages. Completing a task auto-writes an
+// activity of type 'task' so the timeline stays the single source of truth
+// for "what happened".
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    // When a task is tied to a specific deal (e.g. "follow up on FS
+    // proposal") we link the opp so it can surface on the pipeline card too.
+    opportunityId: uuid("opportunity_id").references(() => opportunities.id, {
+      onDelete: "set null",
+    }),
+    // Who owns the follow-up. Defaults to the creator but can be reassigned.
+    assigneeUserId: uuid("assignee_user_id")
+      .notNull()
+      .references(() => users.id),
+    title: text("title").notNull(),
+    notes: text("notes"),
+    dueDate: date("due_date").notNull(),
+    status: taskStatusEnum("status").notNull().default("open"),
+    priority: taskPriorityEnum("priority").notNull().default("normal"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    // Snooze history is useful diagnostic signal — if a task has been snoozed
+    // 3+ times, it probably isn't actually going to happen. We just count,
+    // not log timestamps, to keep it cheap.
+    snoozeCount: integer("snooze_count").notNull().default(0),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    // When this task was auto-created by another flow (e.g. FS cross-sell
+    // email send auto-spawns a 5-day follow-up), we record the source so we
+    // can find them later for reporting / cleanup.
+    autoSource: text("auto_source"), // e.g. 'fs_cross_sell_send'
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    accountIdx: index("tasks_account_idx").on(t.accountId),
+    opportunityIdx: index("tasks_opportunity_idx").on(t.opportunityId),
+    assigneeIdx: index("tasks_assignee_idx").on(t.assigneeUserId),
+    // Composite index for the Today view's most common query:
+    // "open tasks for user X ordered by due date".
+    assigneeStatusDueIdx: index("tasks_assignee_status_due_idx").on(
+      t.assigneeUserId,
+      t.status,
+      t.dueDate,
+    ),
+    statusDueIdx: index("tasks_status_due_idx").on(t.status, t.dueDate),
+  }),
+);
+
+// ============================================================================
+// MESSAGE TEMPLATES (reusable copy for outbound email)
+// ============================================================================
+
+// A small library of send-ready email templates, keyed by purpose. The body
+// columns store Handlebars-ish `{{placeholders}}` that the send action
+// fills in at dispatch time (account name, first name, etc.).
+//
+// We keep both an HTML and a plain-text version because Resend — and most
+// inboxes — want both. The plain version is what spam filters sniff first.
+export const messageTemplates = pgTable(
+  "message_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    purpose: messageTemplatePurposeEnum("purpose").notNull(),
+    // Human-readable key like 'fs_cross_sell_v1' — what the UI picks by.
+    // Unique so we can upsert a template by key during seeding.
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    subjectTemplate: text("subject_template").notNull(),
+    bodyHtmlTemplate: text("body_html_template").notNull(),
+    bodyTextTemplate: text("body_text_template").notNull(),
+    // Active templates show in the send UI; inactive ones stay around so
+    // previously-sent emails still resolve their template name in history.
+    active: boolean("active").notNull().default(true),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    keyUnique: uniqueIndex("message_templates_key_unique").on(t.key),
+    purposeIdx: index("message_templates_purpose_idx").on(t.purpose),
+  }),
+);
+
+// ============================================================================
+// EMAIL SENDS (the sent record — one row per recipient)
+// ============================================================================
+
+// Every outbound email we send gets a row here. One row per recipient, so a
+// single campaign to 20 contacts is 20 rows. Linked to account (required),
+// opportunity (optional — cross-sell sends land against a synthetic opp),
+// contact (who we sent to), and template (what copy we used).
+//
+// We also write a companion `activities` row with type='email',
+// direction='outbound' for each send so the account timeline reflects it.
+export const emailSends = pgTable(
+  "email_sends",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    opportunityId: uuid("opportunity_id").references(() => opportunities.id, {
+      onDelete: "set null",
+    }),
+    // The template we sent (or null if the rep wrote a one-off from scratch
+    // — future flow, not used in v1).
+    templateId: uuid("template_id").references(() => messageTemplates.id, {
+      onDelete: "set null",
+    }),
+    // Sender identity at time of send. Captured per-row so changing the
+    // default later doesn't re-write history.
+    fromEmail: text("from_email").notNull(),
+    fromName: text("from_name"),
+    toEmail: text("to_email").notNull(),
+    // Snapshot of rendered subject/body at send time — templates can change
+    // but history should not.
+    subject: text("subject").notNull(),
+    bodyHtml: text("body_html").notNull(),
+    bodyText: text("body_text").notNull(),
+    status: emailStatusEnum("status").notNull().default("queued"),
+    // Resend returns an ID for each accepted message; we store it so we can
+    // match inbound webhooks later.
+    providerMessageId: text("provider_message_id"),
+    providerError: text("provider_error"),
+    sentByUserId: uuid("sent_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    bouncedAt: timestamp("bounced_at", { withTimezone: true }),
+    complainedAt: timestamp("complained_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    accountIdx: index("email_sends_account_idx").on(t.accountId),
+    contactIdx: index("email_sends_contact_idx").on(t.contactId),
+    opportunityIdx: index("email_sends_opportunity_idx").on(t.opportunityId),
+    sentByIdx: index("email_sends_sent_by_idx").on(t.sentByUserId),
+    statusIdx: index("email_sends_status_idx").on(t.status),
+    providerMessageIdIdx: uniqueIndex("email_sends_provider_message_id_unique")
+      .on(t.providerMessageId)
+      .where(sql`${t.providerMessageId} IS NOT NULL`),
+  }),
+);
+
+// ============================================================================
 // SUPPORTING TABLES
 // ============================================================================
 
@@ -522,6 +733,59 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
   }),
 }));
 
+export const tasksRelations = relations(tasks, ({ one }) => ({
+  account: one(accounts, {
+    fields: [tasks.accountId],
+    references: [accounts.id],
+  }),
+  opportunity: one(opportunities, {
+    fields: [tasks.opportunityId],
+    references: [opportunities.id],
+  }),
+  assignee: one(users, {
+    fields: [tasks.assigneeUserId],
+    references: [users.id],
+  }),
+  createdBy: one(users, {
+    fields: [tasks.createdByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const messageTemplatesRelations = relations(
+  messageTemplates,
+  ({ one, many }) => ({
+    createdBy: one(users, {
+      fields: [messageTemplates.createdByUserId],
+      references: [users.id],
+    }),
+    sends: many(emailSends),
+  }),
+);
+
+export const emailSendsRelations = relations(emailSends, ({ one }) => ({
+  account: one(accounts, {
+    fields: [emailSends.accountId],
+    references: [accounts.id],
+  }),
+  contact: one(contacts, {
+    fields: [emailSends.contactId],
+    references: [contacts.id],
+  }),
+  opportunity: one(opportunities, {
+    fields: [emailSends.opportunityId],
+    references: [opportunities.id],
+  }),
+  template: one(messageTemplates, {
+    fields: [emailSends.templateId],
+    references: [messageTemplates.id],
+  }),
+  sentBy: one(users, {
+    fields: [emailSends.sentByUserId],
+    references: [users.id],
+  }),
+}));
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -534,6 +798,12 @@ export type Opportunity = typeof opportunities.$inferSelect;
 export type NewOpportunity = typeof opportunities.$inferInsert;
 export type Activity = typeof activities.$inferSelect;
 export type NewActivity = typeof activities.$inferInsert;
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;
+export type MessageTemplate = typeof messageTemplates.$inferSelect;
+export type NewMessageTemplate = typeof messageTemplates.$inferInsert;
+export type EmailSend = typeof emailSends.$inferSelect;
+export type NewEmailSend = typeof emailSends.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 

@@ -2,11 +2,13 @@ import Link from "next/link";
 import { sql, eq, and, isNotNull } from "drizzle-orm";
 import { db, accounts, opportunities } from "@/db";
 import { requireSession } from "@/lib/session";
+import { getTaskCountsForUser } from "../tasks/actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await requireSession();
+  const taskCounts = await getTaskCountsForUser();
 
   const [accountCount] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -79,7 +81,35 @@ export default async function DashboardPage() {
         <Stat label="Open pipeline" value={openOppCount.count} />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-3">
+        <Link
+          href="/today"
+          className="group rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
+        >
+          <div
+            className={`text-xs font-semibold uppercase tracking-wide ${
+              taskCounts.overdue > 0 ? "text-rose-700" : "text-filta-blue"
+            }`}
+          >
+            {taskCounts.overdue > 0 ? "Needs attention" : "Today"}
+          </div>
+          <div className="mt-2 text-xl font-semibold text-slate-900">
+            {taskCounts.overdue + taskCounts.today === 0
+              ? "You're caught up"
+              : `${taskCounts.overdue + taskCounts.today} follow-up${
+                  taskCounts.overdue + taskCounts.today === 1 ? "" : "s"
+                }`}
+          </div>
+          <p className="mt-1 text-sm text-slate-600">
+            {taskCounts.overdue > 0
+              ? `${taskCounts.overdue} overdue · ${taskCounts.today} due today · ${taskCounts.thisWeek} later this week.`
+              : `${taskCounts.today} due today · ${taskCounts.thisWeek} later this week.`}
+          </p>
+          <div className="mt-3 text-sm font-medium text-slate-900 group-hover:underline">
+            Open Today →
+          </div>
+        </Link>
+
         <Link
           href="/cross-sell"
           className="group rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
@@ -111,7 +141,7 @@ export default async function DashboardPage() {
           </div>
           <p className="mt-1 text-sm text-slate-600">
             Drag deals through the funnel. Filter by service type (FF / FS / FB
-            / FG / FC / DF).
+            / FG / FC / FD).
           </p>
           <div className="mt-3 text-sm font-medium text-slate-900 group-hover:underline">
             Open pipeline board →
