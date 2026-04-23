@@ -68,7 +68,7 @@ export const serviceTypeEnum = pgEnum("service_type", [
   "fb", // FiltaBio — used oil collection
   "fg", // FiltaGold — deep clean (launched Oct 2025)
   "fc", // FiltaCool — refrigeration seal replacement
-  "df", // FiltaDrain — drain foam
+  "fd", // FiltaDrain — drain foam (brand abbrev per guidelines)
 ]);
 
 export const pipelineStageEnum = pgEnum("pipeline_stage", [
@@ -219,7 +219,7 @@ export const accounts = pgTable(
       .default("filta_corporate"),
     // service_profile JSONB shape:
     // { ff: { active: bool, monthly_revenue: num, last_service_date: date },
-    //   fs: { ... }, fb: { ... }, fg: { ... }, fc: { ... }, df: { ... } }
+    //   fs: { ... }, fb: { ... }, fg: { ... }, fc: { ... }, fd: { ... } }
     serviceProfile: jsonb("service_profile")
       .notNull()
       .default(sql`'{}'::jsonb`),
@@ -417,6 +417,29 @@ export const knownCompetitors = pgTable("known_competitors", {
     .defaultNow(),
 });
 
+// Password reset tokens — short-lived, single-use.
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(), // sha256(token)
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenHashIdx: uniqueIndex("password_reset_tokens_token_hash_unique").on(
+      t.tokenHash,
+    ),
+    userIdx: index("password_reset_tokens_user_idx").on(t.userId),
+  }),
+);
+
 // Audit log for Account/Contact/Opportunity mutations
 export const auditLog = pgTable(
   "audit_log",
@@ -520,5 +543,5 @@ export type ServiceProfile = {
   fb?: { active: boolean; monthly_revenue?: number; last_service_date?: string };
   fg?: { active: boolean; monthly_revenue?: number; last_service_date?: string };
   fc?: { active: boolean; monthly_revenue?: number; last_service_date?: string };
-  df?: { active: boolean; monthly_revenue?: number; last_service_date?: string };
+  fd?: { active: boolean; monthly_revenue?: number; last_service_date?: string };
 };

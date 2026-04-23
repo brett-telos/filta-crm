@@ -10,3 +10,4 @@ if (!connectionString) {
 export const pool = new Pool({ connectionString });
 export const db = drizzle(pool, { schema });
 export * from "./schema";
+export { withSession, executeWithSession } from "./withSession";

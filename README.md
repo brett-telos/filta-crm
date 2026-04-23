@@ -14,6 +14,44 @@ Full design rationale lives in `/Users/brettmerrill/Dropbox (Personal)/Telos/1. 
 
 ---
 
+## Features
+
+**Week 1 (foundations, shipped Apr 2026):**
+- Drizzle ontology: accounts, contacts, opportunities, activities, users, and
+  supporting tables — 16 enums including the 7-stage sales pipeline.
+- `scripts/import_leads.ts` — ingests the 5,670-row Filta Symphony export,
+  normalizes phones, maps cities → county → territory, dedupes, auto-creates
+  FiltaFry opps.
+- `scripts/import_billing.ts` — sums revenue across the 3 monthly billing
+  CSVs and writes `service_profile` JSONB on each matched account.
+- Seeders (cities/pricing/competitors/admin user) — fully idempotent.
+
+**Week 2 (sales UX, shipped Apr 2026):**
+- **Email + password auth** — bcrypt hashed, httpOnly session cookie, and a
+  middleware guard on every `(authed)` route. Password reset flow stubbed
+  for SMTP wire-up in Week 3.
+- **Accounts list** — full-text search across company / DBA / city, filters
+  by territory + status, server-side paginated (50/page).
+- **Account detail page** — facts column (location, services, contacts) and
+  actions column (quick-log activity, open opportunities, status + notes).
+  Activity timeline below, sorted newest-first.
+- **Quick-log activity form** — call / email / meeting / visit / note / task.
+  Dispositions branch off the type; duration captured for meetings.
+- **Pipeline Kanban board** — drag-and-drop across the 7 stages, optimistic
+  UI, per-stage totals. Mobile users get a per-card stage dropdown because
+  HTML5 drag-drop is awkward on touch.
+- **FiltaClean Cross-Sell Dashboard** — the strategic priority from the
+  Feb 2026 discovery. Lists FF-active customers without FS, ranked by FF
+  revenue, one-click "Create FS opportunity". Territory-scoped.
+- **Row-level security** — `ENABLE/FORCE RLS` on all business tables with
+  policies keyed to `app.user_territory`, set per-request via `withSession`.
+- **Mobile polish** — responsive nav with active-route highlighting,
+  tap-to-call on phone numbers throughout, 44px min touch targets on the
+  primary CTAs, safe-area-inset-bottom for iOS, progressive-disclosure
+  columns on the big tables.
+
+---
+
 ## What's in this scaffold
 
 ```
@@ -189,16 +227,25 @@ nail down the exact palette from the Filta Corporate brand kit:
 
 ---
 
-## Next up (Week 2)
+## Row-level security
 
-From the design doc:
+`src/db/rls.sql` holds the RLS policies. Apply them any time with:
 
-1. Authentication with Replit Auth / NextAuth (email + password + reset).
-2. Account list + detail pages with activity timeline.
-3. Kanban pipeline board (drag-drop across stages; owner + territory filters).
-4. FiltaClean Cross-Sell Dashboard UI.
-5. Row-level security policies so a Fun Coast rep only sees Fun Coast accounts.
-6. Mobile-first polish for field reps (tap-to-call, quick log).
+```bash
+npm run db:rls      # idempotent — safe to re-run
+```
+
+`setup` runs it automatically at the end of the chain. Policies read three
+session vars (`app.user_id`, `app.user_territory`, `app.user_role`) that the
+app sets on each transaction via `withSession(session, (tx) => ...)` from
+`src/db/index.ts`. Scripts (migrate / seed / import) run without those vars
+bound and therefore bypass RLS as the "system" role.
+
+In-query territory filters remain the primary mechanism (for index usage and
+explicit correctness); RLS is the safety net. The cross-territory writes in
+`moveOpportunityStageAction`, `createFsOpportunityAction`, `logActivityAction`,
+and `updateAccountAction` are all wrapped in `withSession` — they're rejected
+at the DB layer even if the in-code check is ever bypassed.
 
 ---
 

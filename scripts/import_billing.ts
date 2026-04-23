@@ -70,8 +70,7 @@ function parseCustomerHeader(
   //   "31 Supper Club: 03/10/2026 12:00am | Performed"
   //   "AdventHealth DeLand: 03/02/2026 12:00am | Performed"
   //   "La Fiesta: 03/17/2026 12:00am | Cancelled"
-  const cleaned = cell.replace(/^["'\s]+/, "").replace(/["'\s]+$/, "");
-  const m = cleaned.match(
+  const m = cell.match(
     /^(.+?):\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\s+\d{1,2}:\d{2}(?:am|pm)?\s*\|\s*\w+/i,
   );
   if (!m) return null;
@@ -198,7 +197,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Parsing ${files.length} billing file(s): ${files.map((f) => path.basename(f)).join(", ")}`);
+  console.log(`Parsing ${files.length} billing file(s): ${files.map(path.basename).join(", ")}`);
 
   const totals = new Map<string, CustomerTotals>();
   for (const file of files) parseBillingFile(file, totals);
