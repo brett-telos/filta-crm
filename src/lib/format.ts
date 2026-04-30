@@ -109,3 +109,55 @@ export const ACTIVITY_TYPE_LABEL: Record<string, string> = {
   note: "Note",
   task: "Task",
 };
+
+export const INDUSTRY_LABEL: Record<string, string> = {
+  restaurant: "Restaurant",
+  yacht_club: "Yacht Club",
+  hotel: "Hotel",
+  school_university: "School / University",
+  healthcare: "Healthcare",
+  corporate_dining: "Corporate Dining",
+  senior_living: "Senior Living",
+  aerospace_defense: "Aerospace / Defense",
+  entertainment_venue: "Entertainment Venue",
+  government_military: "Government / Military",
+  other: "Other",
+};
+
+export const LEAD_SOURCE_LABEL: Record<string, string> = {
+  filta_corporate: "Filta Corporate",
+  referral: "Referral",
+  web: "Web",
+  trade_show: "Trade Show",
+  cold_outbound: "Cold Outbound",
+  existing_customer: "Existing Customer",
+  other: "Other",
+};
+
+export const DECISION_MAKER_ROLE_LABEL: Record<string, string> = {
+  economic_buyer: "Economic Buyer",
+  champion: "Champion",
+  user: "User",
+  blocker: "Blocker",
+  unknown: "Unknown",
+};
+
+export const PREFERRED_CHANNEL_LABEL: Record<string, string> = {
+  email: "Email",
+  phone: "Phone",
+  text: "Text",
+  in_person: "In Person",
+};
+
+// Normalize a US-style phone number to E.164 (+1XXXXXXXXXX). Returns the
+// raw input if we can't confidently extract 10 digits.
+export function normalizePhoneE164(input: string | null | undefined): string {
+  if (!input) return "";
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (trimmed.startsWith("+") && digits.length >= 10) return `+${digits}`;
+  return trimmed;
+}
