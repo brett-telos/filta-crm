@@ -173,13 +173,25 @@ export default function PipelineBoard({
                       }`}
                     >
                       <Link
-                        href={`/accounts/${c.accountId}`}
+                        href={`/opportunities/${c.id}`}
                         className="block font-medium text-slate-900 hover:underline"
                       >
                         {c.accountName}
                       </Link>
                       <div className="mt-0.5 text-xs text-slate-500">
-                        {c.name}
+                        <Link
+                          href={`/opportunities/${c.id}`}
+                          className="hover:text-slate-700 hover:underline"
+                        >
+                          {c.name}
+                        </Link>
+                        {" · "}
+                        <Link
+                          href={`/accounts/${c.accountId}`}
+                          className="text-slate-400 hover:text-slate-700 hover:underline"
+                        >
+                          account
+                        </Link>
                       </div>
                       <div className="mt-1 flex items-center justify-between text-[11px] text-slate-600">
                         <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium uppercase">

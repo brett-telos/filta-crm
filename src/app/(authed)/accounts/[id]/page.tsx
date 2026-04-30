@@ -296,24 +296,35 @@ export default async function AccountDetailPage({
             ) : (
               <ul className="divide-y divide-slate-100 text-sm">
                 {oppRows.map((o) => (
-                  <li key={o.id} className="flex items-start justify-between py-2">
-                    <div>
-                      <div className="font-medium text-slate-900">{o.name}</div>
-                      <div className="text-xs text-slate-500">
-                        {SERVICE_LABEL[o.serviceType] ?? o.serviceType} ·{" "}
-                        {STAGE_LABEL[o.stage] ?? o.stage}
-                      </div>
-                    </div>
-                    <div className="text-right text-sm">
-                      <div className="font-medium text-slate-900">
-                        {formatCurrency(o.estimatedValueAnnual ?? 0)}
-                      </div>
-                      {o.expectedCloseDate ? (
-                        <div className="text-xs text-slate-500">
-                          ETA {String(o.expectedCloseDate)}
+                  <li key={o.id}>
+                    <Link
+                      href={`/opportunities/${o.id}`}
+                      className="-mx-2 flex items-start justify-between gap-3 rounded-md px-2 py-2 transition hover:bg-slate-50"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900">
+                          {o.name}{" "}
+                          <span className="text-slate-400">›</span>
                         </div>
-                      ) : null}
-                    </div>
+                        <div className="text-xs text-slate-500">
+                          {SERVICE_LABEL[o.serviceType] ?? o.serviceType} ·{" "}
+                          {STAGE_LABEL[o.stage] ?? o.stage}
+                        </div>
+                        <div className="mt-0.5 text-xs text-filta-blue">
+                          Open opportunity → quotes & agreement
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right text-sm">
+                        <div className="font-medium text-slate-900">
+                          {formatCurrency(o.estimatedValueAnnual ?? 0)}
+                        </div>
+                        {o.expectedCloseDate ? (
+                          <div className="text-xs text-slate-500">
+                            ETA {String(o.expectedCloseDate)}
+                          </div>
+                        ) : null}
+                      </div>
+                    </Link>
                   </li>
                 ))}
               </ul>
