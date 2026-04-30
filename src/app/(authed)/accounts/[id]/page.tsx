@@ -359,7 +359,17 @@ export default async function AccountDetailPage({
             <StatusNotesForm
               accountId={acct.id}
               accountStatus={acct.accountStatus}
-              notes={acct.notes}
+              legacyNote={acct.notes}
+              notes={activityRows
+                .filter((a) => a.type === "note")
+                .slice(0, 20)
+                .map((a) => ({
+                  id: a.id,
+                  body: a.body,
+                  occurredAt: a.occurredAt,
+                  ownerFirstName: a.ownerFirstName,
+                  ownerEmail: a.ownerEmail,
+                }))}
             />
           </Card>
         </div>

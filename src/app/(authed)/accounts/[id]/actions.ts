@@ -123,27 +123,30 @@ export async function logActivityAction(
   });
 }
 
-// ---------- update status + notes -------------------------------------------
+// ---------- update account status -------------------------------------------
+//
+// Notes are now logged as activity rows (type='note') via logActivityAction —
+// each save becomes its own timestamped, attributed entry in the timeline,
+// and the textarea clears after submission. The single accounts.notes column
+// is kept for legacy display only.
 
-const NotesInput = z.object({
+const StatusInput = z.object({
   accountId: z.string().uuid(),
-  notes: z.string().max(8000),
   accountStatus: z.enum(["prospect", "customer", "churned", "do_not_contact"]),
 });
 
-export type AccountStatusNotesState = {
+export type AccountStatusState = {
   ok?: boolean;
   error?: string;
 };
 
-export async function updateAccountAction(
-  _prev: AccountStatusNotesState,
+export async function updateAccountStatusAction(
+  _prev: AccountStatusState,
   formData: FormData,
-): Promise<AccountStatusNotesState> {
+): Promise<AccountStatusState> {
   const session = await requireSession();
-  const parsed = NotesInput.safeParse({
+  const parsed = StatusInput.safeParse({
     accountId: formData.get("accountId"),
-    notes: formData.get("notes") ?? "",
     accountStatus: formData.get("accountStatus"),
   });
   if (!parsed.success) {
@@ -171,7 +174,6 @@ export async function updateAccountAction(
     await tx
       .update(accounts)
       .set({
-        notes: parsed.data.notes,
         accountStatus: parsed.data.accountStatus,
         updatedAt: sql`now()`,
       })
