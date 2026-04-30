@@ -380,13 +380,24 @@ async function main() {
       ncaFlag: nca.flag,
       ncaName: nca.name,
       filtaRecordId,
+      // Lead-level funnel stage from the Filta "Sales Funnel" column. Mirrors
+      // what we set on the FF opportunity below for accounts that have one,
+      // but lives on the account so leads without an opp still show up in
+      // the right /leads kanban column.
+      salesFunnelStage: stage,
     };
 
     let accountId: string;
     if (match) {
+      // On UPDATE, deliberately omit salesFunnelStage. Reps may have manually
+      // advanced the lead beyond what Filta corporate's CSV thinks; the rep
+      // is the source of truth once they've touched the lead. Only the
+      // initial INSERT carries the imported stage.
+      const { salesFunnelStage: _ignoreStageOnUpdate, ...updateValues } =
+        baseValues;
       await db
         .update(accounts)
-        .set({ ...baseValues, updatedAt: new Date() })
+        .set({ ...updateValues, updatedAt: new Date() })
         .where(eq(accounts.id, match.id));
       accountId = match.id;
       updated += 1;
@@ -397,6 +408,7 @@ async function main() {
           ...baseValues,
           accountStatus: "prospect",
           leadSource: "filta_corporate",
+          salesFunnelStageChangedAt: new Date(),
         })
         .returning({ id: accounts.id });
       accountId = row2.id;

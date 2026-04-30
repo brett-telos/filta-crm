@@ -15,6 +15,7 @@ import {
   TERRITORY_LABEL,
   formatCurrency,
   formatPhone,
+  formatRelative,
 } from "@/lib/format";
 import CreateFsButton from "./CreateFsButton";
 import SendEmailButton from "./SendEmailButton";
@@ -34,6 +35,20 @@ type Row = {
   // Primary-contact email (or any contact email as fallback). Powers the
   // "Send FS email" button — disabled when null/empty.
   contact_email: string | null;
+  // Engagement summary from the most recent FS cross-sell email_sends row
+  // for this account. Null when no FS email has been sent yet. Populated
+  // via a lateral join below so we don't fan out per-row.
+  last_send_at: string | null;
+  last_send_status:
+    | "queued"
+    | "sent"
+    | "delivered"
+    | "bounced"
+    | "complained"
+    | "failed"
+    | null;
+  last_send_open_count: number | null;
+  last_send_replied_at: string | null;
 };
 
 type Sort = "rev_desc" | "rev_asc" | "company" | "territory";
@@ -91,7 +106,11 @@ export default async function CrossSellPage({
       (a.service_profile->'fb'->>'monthly_revenue')::numeric as fb_monthly,
       u.first_name as owner_first_name,
       u.email as owner_email,
-      c.email as contact_email
+      c.email as contact_email,
+      es.created_at as last_send_at,
+      es.status as last_send_status,
+      es.open_count as last_send_open_count,
+      es.replied_at as last_send_replied_at
     from accounts a
     left join users u on u.id = a.owner_user_id
     left join lateral (
@@ -104,6 +123,24 @@ export default async function CrossSellPage({
       order by is_primary desc, updated_at desc
       limit 1
     ) c on true
+    -- Most recent FS cross-sell email per account. Lateral join keeps the
+    -- per-row cost bounded — we only ever look at the latest send for the
+    -- engagement chip; older sends are visible on the account detail card.
+    --
+    -- Filter to fs_cross_sell purpose so a non-FS email (e.g. a future
+    -- general followup template) doesn't hijack the chip. If no FS template
+    -- has been sent yet, all four columns come back NULL and the chip
+    -- renders "Not sent".
+    left join lateral (
+      select es_inner.created_at, es_inner.status, es_inner.open_count,
+             es_inner.replied_at
+      from email_sends es_inner
+      join message_templates mt on mt.id = es_inner.template_id
+      where es_inner.account_id = a.id
+        and mt.purpose = 'fs_cross_sell'
+      order by es_inner.created_at desc
+      limit 1
+    ) es on true
     where a.account_status = 'customer'
       and (a.service_profile->'ff'->>'active')::boolean = true
       and coalesce((a.service_profile->'fs'->>'active')::boolean, false) = false
@@ -198,6 +235,7 @@ export default async function CrossSellPage({
                 </th>
                 <th className="hidden px-4 py-3 lg:table-cell">Owner</th>
                 <th className="hidden px-4 py-3 md:table-cell">Phone</th>
+                <th className="hidden px-4 py-3 sm:table-cell">Engagement</th>
                 <th className="px-4 py-3 text-right">Action</th>
               </tr>
             </thead>
@@ -205,7 +243,7 @@ export default async function CrossSellPage({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4 py-10 text-center text-sm text-slate-500"
                   >
                     No open cross-sell targets in scope.
@@ -267,6 +305,14 @@ export default async function CrossSellPage({
                           "—"
                         )}
                       </td>
+                      <td className="hidden px-4 py-3 sm:table-cell">
+                        <EngagementChip
+                          lastSendAt={r.last_send_at}
+                          status={r.last_send_status}
+                          openCount={r.last_send_open_count ?? 0}
+                          repliedAt={r.last_send_replied_at}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex flex-col items-end gap-1.5">
                           <CreateFsButton accountId={r.id} />
@@ -291,6 +337,78 @@ export default async function CrossSellPage({
         the first wins; overrideable on each opportunity.
       </p>
     </div>
+  );
+}
+
+// Engagement chip — at-a-glance signal of how the most recent email did.
+// Priority: replied > opened > sent-but-cold > delivery problem > never sent.
+// "Cold" appears once a sent email has gone 3+ days without engagement; the
+// rep should consider a phone follow-up before another email.
+function EngagementChip({
+  lastSendAt,
+  status,
+  openCount,
+  repliedAt,
+}: {
+  lastSendAt: string | null;
+  status:
+    | "queued"
+    | "sent"
+    | "delivered"
+    | "bounced"
+    | "complained"
+    | "failed"
+    | null;
+  openCount: number;
+  repliedAt: string | null;
+}) {
+  if (!lastSendAt || !status) {
+    return <span className="text-xs text-slate-400">Not sent</span>;
+  }
+  const sentAt = new Date(lastSendAt);
+  const daysSince = Math.floor(
+    (Date.now() - sentAt.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (repliedAt) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-medium uppercase text-emerald-800">
+        Replied · {formatRelative(new Date(repliedAt))}
+      </span>
+    );
+  }
+  if (status === "bounced" || status === "complained") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-medium uppercase text-rose-700">
+        {status}
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-medium uppercase text-rose-700">
+        Failed
+      </span>
+    );
+  }
+  if (openCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium uppercase text-emerald-700">
+        Opened {openCount}× · {daysSince}d
+      </span>
+    );
+  }
+  if (daysSince >= 3) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase text-slate-600">
+        Cold · {daysSince}d
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium uppercase text-blue-700">
+      Sent · {daysSince === 0 ? "today" : `${daysSince}d`}
+    </span>
   );
 }
 

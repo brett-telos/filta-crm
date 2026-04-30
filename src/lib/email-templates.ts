@@ -65,6 +65,46 @@ export function senderIdentityFor(
 }
 
 /**
+ * Returns the inbound reply address for an outbound send, using plus-
+ * addressing on a dedicated reply subdomain. The webhook handler matches
+ * inbound replies back to the original send by parsing the emailSendId out
+ * of the local part.
+ *
+ * Example: replyAddressFor("fun_coast", "abc-123-...") →
+ *   "reply+abc-123-...@reply.filtafuncoast.com"
+ *
+ * The subdomain is independent of the sending domain so DNS for "we send"
+ * and "we receive" can be configured separately. Plus-addressing is RFC-822
+ * compliant and supported by every modern mail server, including Resend's
+ * inbound parser.
+ *
+ * Until DNS is set up, this address won't actually deliver mail — but the
+ * outbound email is still well-formed and the dev stub keeps everything
+ * testable. Once Brett configures MX records (see docs/email-inbound-setup.md)
+ * inbound matching starts working without a code change.
+ */
+export function replyAddressFor(
+  territory: Territory | null | undefined,
+  emailSendId: string,
+): string {
+  const subdomain =
+    territory === "space_coast"
+      ? "reply.filtaspacecoast.com"
+      : "reply.filtafuncoast.com";
+  return `reply+${emailSendId}@${subdomain}`;
+}
+
+/**
+ * Inverse of replyAddressFor — pulls the emailSendId back out of an inbound
+ * recipient address. Returns null if the address doesn't have a plus-tag we
+ * recognize. Used by the inbound webhook handler.
+ */
+export function parseReplyAddress(toAddress: string): string | null {
+  const m = toAddress.match(/reply\+([^@]+)@reply\./i);
+  return m ? m[1] : null;
+}
+
+/**
  * Substitutes `{{key}}` placeholders in `template` with values from `vars`.
  *
  * - Trims whitespace inside the braces so `{{ firstName }}` and `{{firstName}}`

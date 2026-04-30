@@ -39,6 +39,7 @@ export default async function AppNav() {
       badgeUrgent: todayUrgent,
     },
     { href: "/accounts", label: "Accounts" },
+    { href: "/leads", label: "Leads" },
     { href: "/pipeline", label: "Pipeline" },
     { href: "/cross-sell", label: "Cross-Sell" },
   ];

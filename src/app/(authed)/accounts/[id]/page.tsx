@@ -28,6 +28,7 @@ import {
   formatRelative,
 } from "@/lib/format";
 import LogActivityForm from "./LogActivityForm";
+import SalesFunnelWidget from "./SalesFunnelWidget";
 import { updateAccountAction } from "./actions";
 import { getOpenTasksForAccount } from "../../tasks/actions";
 import { TaskRow } from "../../today/TaskRow";
@@ -97,7 +98,9 @@ export default async function AccountDetailPage({
       getOpenTasksForAccount(acct.id),
       // Last 10 sent (or attempted) emails — shown as a compact history card.
       // Ordered by createdAt so a queued/failed row still shows up in the
-      // expected slot even if sentAt never got stamped.
+      // expected slot even if sentAt never got stamped. Includes engagement
+      // counters from W4.1 (open_count, click_count, replied_at) so the rep
+      // can see "sent 3d ago, opened 2x, replied" without leaving the page.
       db
         .select({
           id: emailSends.id,
@@ -107,6 +110,11 @@ export default async function AccountDetailPage({
           providerError: emailSends.providerError,
           sentAt: emailSends.sentAt,
           createdAt: emailSends.createdAt,
+          openCount: emailSends.openCount,
+          clickCount: emailSends.clickCount,
+          repliedAt: emailSends.repliedAt,
+          lastEventAt: emailSends.lastEventAt,
+          lastEventType: emailSends.lastEventType,
           senderFirstName: users.firstName,
           senderEmail: users.email,
         })
@@ -281,6 +289,26 @@ export default async function AccountDetailPage({
 
         {/* Right column — actions. Mobile order-1 puts this first. */}
         <div className="order-1 space-y-4 lg:order-2 lg:col-span-2">
+          {acct.accountStatus === "prospect" ? (
+            <Card title="Sales funnel">
+              <SalesFunnelWidget
+                accountId={acct.id}
+                companyName={acct.companyName}
+                currentStage={acct.salesFunnelStage as
+                  | "new_lead"
+                  | "contacted"
+                  | "qualified"
+                  | "proposal"
+                  | "negotiation"
+                  | "closed_won"
+                  | "closed_lost"}
+                stageChangedAt={(
+                  acct.salesFunnelStageChangedAt as Date
+                ).toISOString()}
+              />
+            </Card>
+          ) : null}
+
           <Card title={`Next steps${openTasks.length ? ` (${openTasks.length})` : ""}`}>
             {openTasks.length === 0 ? (
               <p className="mb-3 text-sm text-slate-500">
@@ -369,9 +397,19 @@ export default async function AccountDetailPage({
                             {e.providerError}
                           </div>
                         ) : null}
+                        <EngagementSummary
+                          openCount={e.openCount}
+                          clickCount={e.clickCount}
+                          repliedAt={e.repliedAt}
+                          lastEventAt={e.lastEventAt}
+                        />
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <EmailStatusPill status={e.status} />
+                        <EmailStatusPill
+                          status={e.status}
+                          repliedAt={e.repliedAt}
+                          openCount={e.openCount}
+                        />
                         <span
                           className="text-xs text-slate-500"
                           title={formatDateTime(when)}
@@ -544,7 +582,32 @@ const EMAIL_STATUS_STYLE: Record<EmailStatus, { cls: string; label: string }> = 
   },
 };
 
-function EmailStatusPill({ status }: { status: EmailStatus }) {
+// Pill priority: replied > opened/clicked > delivery status. The "did it
+// land?" question is most important once a reply happens, then "did they
+// engage?", then the raw delivery status.
+function EmailStatusPill({
+  status,
+  repliedAt,
+  openCount,
+}: {
+  status: EmailStatus;
+  repliedAt?: Date | null;
+  openCount?: number;
+}) {
+  if (repliedAt) {
+    return (
+      <span className="inline-flex items-center rounded-md border border-emerald-300 bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+        Replied
+      </span>
+    );
+  }
+  if ((openCount ?? 0) > 0 && (status === "sent" || status === "delivered")) {
+    return (
+      <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700">
+        Opened
+      </span>
+    );
+  }
   const { cls, label } = EMAIL_STATUS_STYLE[status];
   return (
     <span
@@ -552,6 +615,38 @@ function EmailStatusPill({ status }: { status: EmailStatus }) {
     >
       {label}
     </span>
+  );
+}
+
+// Sub-line under the email subject summarizing engagement counters. Hidden
+// entirely when there's no signal yet (avoids visual noise on freshly-sent
+// rows that haven't been opened).
+function EngagementSummary({
+  openCount,
+  clickCount,
+  repliedAt,
+  lastEventAt,
+}: {
+  openCount: number;
+  clickCount: number;
+  repliedAt: Date | null;
+  lastEventAt: Date | null;
+}) {
+  if (!openCount && !clickCount && !repliedAt) return null;
+  const parts: string[] = [];
+  if (openCount > 0) {
+    parts.push(`opened ${openCount}×`);
+  }
+  if (clickCount > 0) {
+    parts.push(`${clickCount} click${clickCount === 1 ? "" : "s"}`);
+  }
+  if (repliedAt) {
+    parts.push(`replied ${formatRelative(repliedAt)}`);
+  } else if (lastEventAt) {
+    parts.push(`last event ${formatRelative(lastEventAt)}`);
+  }
+  return (
+    <div className="mt-0.5 text-xs text-emerald-700">{parts.join(" · ")}</div>
   );
 }
 

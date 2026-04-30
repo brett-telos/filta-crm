@@ -32,6 +32,7 @@ import { requireSession } from "@/lib/session";
 import { sendEmail } from "@/lib/resend";
 import {
   renderTemplate,
+  replyAddressFor,
   senderIdentityFor,
   wrapInBaseHtml,
 } from "@/lib/email-templates";
@@ -317,7 +318,14 @@ export async function sendFsCrossSellEmailAction(
       text: renderedTextBody,
       fromEmail: sender.fromEmail,
       fromName: sender.fromName,
-      replyTo: process.env.EMAIL_REPLY_TO || sender.fromEmail,
+      // Plus-addressed reply-to — `reply+<emailSendId>@reply.<domain>`. The
+      // inbound webhook handler parses the emailSendId out of the local
+      // part to match a reply back to its originating send. Falls back to
+      // EMAIL_REPLY_TO (manual override) or the sender address if a custom
+      // reply-to is configured.
+      replyTo:
+        process.env.EMAIL_REPLY_TO ||
+        replyAddressFor(acct.territory, row.id),
     };
   });
 

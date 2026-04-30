@@ -175,6 +175,21 @@ export const taskPriorityEnum = pgEnum("task_priority", [
   "high",
 ]);
 
+// Email engagement events (Week 4.1). Tracks per-event signals from Resend
+// webhooks — delivered, opened, clicked, bounced, complained — plus our own
+// 'replied' marker when an inbound reply matches an outbound send. Inserts
+// are idempotent on Resend's event id; counters on email_sends mirror the
+// sums for cheap list-page rendering.
+export const emailEventTypeEnum = pgEnum("email_event_type", [
+  "delivered",
+  "opened",
+  "clicked",
+  "bounced",
+  "complained",
+  "failed",
+  "replied",
+]);
+
 // Email / message infra (Week 3.1). Email status tracks the send lifecycle
 // from "queued in our DB" → "handed to Resend" → "delivered / bounced /
 // complained". We keep it conservative: Resend gives us more detailed
@@ -257,6 +272,27 @@ export const accounts = pgTable(
     leadSource: leadSourceEnum("lead_source")
       .notNull()
       .default("filta_corporate"),
+    // Sales funnel stage — where the LEAD is in the cold-to-customer journey,
+    // independent of any specific opportunity. Reuses pipelineStageEnum so
+    // /leads kanban columns are vocabulary-compatible with /pipeline.
+    //
+    // Why a column on accounts (not just opportunities): not every prospect
+    // has an opp yet (no fryer count known, no service decided), but they
+    // still belong somewhere on the funnel. Once an opp exists, the opp's
+    // stage is the source of truth for that service-specific deal; this
+    // column tracks the overall account-level relationship state.
+    //
+    // After conversion to customer this stays at 'closed_won' as a frozen
+    // record of the lead lifecycle. We don't repurpose it for renewal/churn.
+    salesFunnelStage: pipelineStageEnum("sales_funnel_stage")
+      .notNull()
+      .default("new_lead"),
+    salesFunnelStageChangedAt: timestamp("sales_funnel_stage_changed_at", {
+      withTimezone: true,
+    })
+      .notNull()
+      .defaultNow(),
+    convertedAt: timestamp("converted_at", { withTimezone: true }),
     // service_profile JSONB shape:
     // { ff: { active: bool, monthly_revenue: num, last_service_date: date },
     //   fs: { ... }, fb: { ... }, fg: { ... }, fc: { ... }, fd: { ... } }
@@ -279,6 +315,13 @@ export const accounts = pgTable(
     phoneIdx: index("accounts_phone_idx").on(t.phone),
     territoryIdx: index("accounts_territory_idx").on(t.territory),
     statusIdx: index("accounts_status_idx").on(t.accountStatus),
+    // Compound index for the /leads list: filter by status='prospect' and
+    // group/sort by funnel stage. Postgres can use the prefix for status-only
+    // queries too, so no need for a duplicate single-column index.
+    statusFunnelIdx: index("accounts_status_funnel_idx").on(
+      t.accountStatus,
+      t.salesFunnelStage,
+    ),
     ownerIdx: index("accounts_owner_idx").on(t.ownerUserId),
     filtaRecordIdIdx: uniqueIndex("accounts_filta_record_id_unique")
       .on(t.filtaRecordId)
@@ -566,6 +609,18 @@ export const emailSends = pgTable(
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     bouncedAt: timestamp("bounced_at", { withTimezone: true }),
     complainedAt: timestamp("complained_at", { withTimezone: true }),
+    // Engagement counters maintained by the events webhook (Week 4.1).
+    // Mirrors of the email_events table aggregates so the cross-sell
+    // dashboard and account detail card don't have to fan out a JOIN per
+    // row. `firstOpenedAt` and `firstClickedAt` are nice for "sent 3d ago,
+    // first opened 4h later" copy; `lastEventAt` is the freshness signal.
+    openCount: integer("open_count").notNull().default(0),
+    clickCount: integer("click_count").notNull().default(0),
+    firstOpenedAt: timestamp("first_opened_at", { withTimezone: true }),
+    firstClickedAt: timestamp("first_clicked_at", { withTimezone: true }),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }),
+    lastEventType: emailEventTypeEnum("last_event_type"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -582,6 +637,46 @@ export const emailSends = pgTable(
     providerMessageIdIdx: uniqueIndex("email_sends_provider_message_id_unique")
       .on(t.providerMessageId)
       .where(sql`${t.providerMessageId} IS NOT NULL`),
+  }),
+);
+
+// One row per Resend webhook event (or per matched inbound reply). The
+// (provider_event_id) uniqueness keeps replays idempotent — Resend retries
+// 4xx/5xx responses, so we expect to see the same event id more than once.
+//
+// rawPayload preserves the exact webhook body for forensic debugging. It's
+// not large (a few hundred bytes per event) and the cost is dwarfed by the
+// value of being able to answer "wait, what did Resend actually say?".
+export const emailEvents = pgTable(
+  "email_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    emailSendId: uuid("email_send_id")
+      .notNull()
+      .references(() => emailSends.id, { onDelete: "cascade" }),
+    eventType: emailEventTypeEnum("event_type").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    // Resend's per-event id ('evt_...'). Null only for our own synthetic
+    // 'replied' events generated by the inbound webhook (those use a
+    // synthesized id derived from the inbound message-id).
+    providerEventId: text("provider_event_id"),
+    // For 'clicked' events — the URL the recipient clicked. Useful for
+    // "they clicked the proposal link, not the unsubscribe link" triage.
+    linkUrl: text("link_url"),
+    rawPayload: jsonb("raw_payload"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    sendIdx: index("email_events_send_idx").on(t.emailSendId),
+    typeIdx: index("email_events_type_idx").on(t.eventType),
+    occurredAtIdx: index("email_events_occurred_at_idx").on(t.occurredAt),
+    // Idempotency key — partial unique because synthetic 'replied' events
+    // can pass null and we don't want to collide them with one another.
+    providerEventIdIdx: uniqueIndex("email_events_provider_event_id_unique")
+      .on(t.providerEventId)
+      .where(sql`${t.providerEventId} IS NOT NULL`),
   }),
 );
 
@@ -763,7 +858,7 @@ export const messageTemplatesRelations = relations(
   }),
 );
 
-export const emailSendsRelations = relations(emailSends, ({ one }) => ({
+export const emailSendsRelations = relations(emailSends, ({ one, many }) => ({
   account: one(accounts, {
     fields: [emailSends.accountId],
     references: [accounts.id],
@@ -783,6 +878,14 @@ export const emailSendsRelations = relations(emailSends, ({ one }) => ({
   sentBy: one(users, {
     fields: [emailSends.sentByUserId],
     references: [users.id],
+  }),
+  events: many(emailEvents),
+}));
+
+export const emailEventsRelations = relations(emailEvents, ({ one }) => ({
+  emailSend: one(emailSends, {
+    fields: [emailEvents.emailSendId],
+    references: [emailSends.id],
   }),
 }));
 
@@ -804,6 +907,8 @@ export type MessageTemplate = typeof messageTemplates.$inferSelect;
 export type NewMessageTemplate = typeof messageTemplates.$inferInsert;
 export type EmailSend = typeof emailSends.$inferSelect;
 export type NewEmailSend = typeof emailSends.$inferInsert;
+export type EmailEvent = typeof emailEvents.$inferSelect;
+export type NewEmailEvent = typeof emailEvents.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
