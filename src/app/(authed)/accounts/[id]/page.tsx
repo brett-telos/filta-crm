@@ -32,7 +32,7 @@ import SalesFunnelWidget from "./SalesFunnelWidget";
 import EditableInfoCard from "./EditableInfoCard";
 import EditableServicesCard from "./EditableServicesCard";
 import EditableContactsCard from "./EditableContactsCard";
-import { updateAccountAction } from "./actions";
+import StatusNotesForm from "./StatusNotesForm";
 import { getOpenTasksForAccount } from "../../tasks/actions";
 import { TaskRow } from "../../today/TaskRow";
 import { QuickAddTask } from "../../today/QuickAddTask";
@@ -356,39 +356,11 @@ export default async function AccountDetailPage({
           </Card>
 
           <Card title="Status & notes">
-            <form action={updateAccountAction} className="space-y-3 text-sm">
-              <input type="hidden" name="accountId" value={acct.id} />
-              <label className="block">
-                <span className="text-xs font-medium text-slate-600">Status</span>
-                <select
-                  name="accountStatus"
-                  defaultValue={acct.accountStatus}
-                  className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
-                >
-                  <option value="prospect">Prospect</option>
-                  <option value="customer">Customer</option>
-                  <option value="churned">Churned</option>
-                  <option value="do_not_contact">Do Not Contact</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-xs font-medium text-slate-600">Notes</span>
-                <textarea
-                  name="notes"
-                  rows={4}
-                  defaultValue={acct.notes ?? ""}
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-                />
-              </label>
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  className="rounded-md bg-filta-blue px-3 py-1.5 text-sm font-semibold text-white hover:bg-filta-blue-dark"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
+            <StatusNotesForm
+              accountId={acct.id}
+              accountStatus={acct.accountStatus}
+              notes={acct.notes}
+            />
           </Card>
         </div>
       </div>

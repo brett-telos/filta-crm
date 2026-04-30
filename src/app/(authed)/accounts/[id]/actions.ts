@@ -123,7 +123,7 @@ export async function logActivityAction(
   });
 }
 
-// ---------- update status + notes (back-compat) -----------------------------
+// ---------- update status + notes -------------------------------------------
 
 const NotesInput = z.object({
   accountId: z.string().uuid(),
@@ -131,29 +131,41 @@ const NotesInput = z.object({
   accountStatus: z.enum(["prospect", "customer", "churned", "do_not_contact"]),
 });
 
-export async function updateAccountAction(formData: FormData): Promise<void> {
+export type AccountStatusNotesState = {
+  ok?: boolean;
+  error?: string;
+};
+
+export async function updateAccountAction(
+  _prev: AccountStatusNotesState,
+  formData: FormData,
+): Promise<AccountStatusNotesState> {
   const session = await requireSession();
   const parsed = NotesInput.safeParse({
     accountId: formData.get("accountId"),
     notes: formData.get("notes") ?? "",
     accountStatus: formData.get("accountStatus"),
   });
-  if (!parsed.success) return;
+  if (!parsed.success) {
+    return { error: parsed.error.errors[0]?.message ?? "Invalid input." };
+  }
 
-  await withSession(session, async (tx) => {
+  return withSession(session, async (tx) => {
     const [acct] = await tx
       .select({ territory: accounts.territory, deletedAt: accounts.deletedAt })
       .from(accounts)
       .where(eq(accounts.id, parsed.data.accountId))
       .limit(1);
 
-    if (!acct || acct.deletedAt) return;
+    if (!acct || acct.deletedAt) {
+      return { error: "Account not found." };
+    }
     if (
       session.territory !== "both" &&
       acct.territory !== session.territory &&
       acct.territory !== "unassigned"
     ) {
-      return;
+      return { error: "You don't have access to that account." };
     }
 
     await tx
@@ -166,6 +178,7 @@ export async function updateAccountAction(formData: FormData): Promise<void> {
       .where(eq(accounts.id, parsed.data.accountId));
 
     revalidatePath(`/accounts/${parsed.data.accountId}`);
+    return { ok: true };
   });
 }
 
