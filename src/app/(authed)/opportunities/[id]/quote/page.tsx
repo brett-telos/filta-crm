@@ -25,6 +25,7 @@ import {
 import { requireSession, canAccessTerritory } from "@/lib/session";
 import { SERVICE_LABEL, formatCurrency } from "@/lib/format";
 import QuoteBuilder, { type QuoteBuilderProps } from "./QuoteBuilder";
+import AcceptQuoteButton from "./AcceptQuoteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -258,7 +259,7 @@ export default async function QuoteBuilderPage({
                           : `Created ${new Date(v.createdAt).toLocaleDateString()}`}
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="flex flex-col items-end gap-1.5 text-right">
                       <div className="font-medium text-slate-900">
                         {formatCurrency(Number(v.estimatedAnnual ?? 0))}/yr
                       </div>
@@ -271,6 +272,13 @@ export default async function QuoteBuilderPage({
                         >
                           Download PDF →
                         </a>
+                      ) : null}
+                      {v.status === "sent" ? (
+                        <AcceptQuoteButton
+                          quoteVersionId={v.id}
+                          customerName={opp.companyName}
+                          customerEmail={primaryContact?.email ?? null}
+                        />
                       ) : null}
                     </div>
                   </li>

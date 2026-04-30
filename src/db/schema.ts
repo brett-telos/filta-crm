@@ -241,6 +241,35 @@ export const quoteFrequencyEnum = pgEnum("quote_frequency", [
   "one_time",
 ]);
 
+// Service Agreement lifecycle (Week 6.0).
+//   draft       — created but not yet sent to customer
+//   sent        — emailed to customer, awaiting countersignature
+//   signed      — customer signed (digitally or returned via email/upload)
+//   active      — counter-signed by Filta, service is live
+//   terminated  — relationship ended (mutual or otherwise)
+//
+// We don't model 'expired' here because the corporate template auto-renews
+// every 3 years; expiration only happens via explicit termination.
+export const serviceAgreementStatusEnum = pgEnum("service_agreement_status", [
+  "draft",
+  "sent",
+  "signed",
+  "active",
+  "terminated",
+]);
+
+// Billing import lifecycle (Week 6.1).
+//   uploaded   — file received and parsed; diff computed but not applied
+//   previewed  — operator viewed the diff (purely UX state; same data as uploaded)
+//   applied    — diff was applied to the database
+//   aborted    — operator decided not to apply (preserved for audit)
+export const billingImportStatusEnum = pgEnum("billing_import_status", [
+  "uploaded",
+  "previewed",
+  "applied",
+  "aborted",
+]);
+
 // ============================================================================
 // USERS
 // ============================================================================
@@ -846,6 +875,141 @@ export const quoteLineItems = pgTable(
   }),
 );
 
+
+// Service Agreement (Week 6.0). Created when a customer accepts a quote — one
+// accepted quote_version produces one agreement. Captures everything needed
+// to render the multi-page corporate Service Agreement PDF and to drive the
+// onboarding sequence (status flip, first-visit task, welcome email).
+//
+// Term defaults: 3-year initial term per the corporate template, auto-renew
+// for additional 3-year terms. We seed term_end_date to start + 3 years; the
+// auto-renewal is implicit (the agreement stays active unless terminated).
+//
+// Customer countersignature is captured via signed_name (typed) for v1; a
+// future phase can add DocuSign / Dropbox Sign integration without schema
+// changes — just an extra signed_envelope_id column.
+export const serviceAgreements = pgTable(
+  "service_agreements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteVersionId: uuid("quote_version_id")
+      .notNull()
+      .references(() => quoteVersions.id, { onDelete: "restrict" }),
+    // Denormalized FK for fast lookup ("show me all agreements for this
+    // account"). Not strictly required since we can join through the quote,
+    // but makes the queries on /accounts/[id] much simpler.
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    status: serviceAgreementStatusEnum("status").notNull().default("draft"),
+    // Term dates — initial 3-year per corporate template.
+    termStartDate: date("term_start_date"),
+    termEndDate: date("term_end_date"),
+    // Send + signature tracking.
+    sentToEmail: text("sent_to_email"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentEmailSendId: uuid("sent_email_send_id").references(
+      () => emailSends.id,
+      { onDelete: "set null" },
+    ),
+    customerSignedAt: timestamp("customer_signed_at", { withTimezone: true }),
+    customerSignedName: text("customer_signed_name"),
+    filtaSignedAt: timestamp("filta_signed_at", { withTimezone: true }),
+    filtaSignedByUserId: uuid("filta_signed_by_user_id").references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    terminatedAt: timestamp("terminated_at", { withTimezone: true }),
+    terminationReason: text("termination_reason"),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    accountIdx: index("service_agreements_account_idx").on(t.accountId),
+    quoteVersionIdx: index("service_agreements_quote_version_idx").on(
+      t.quoteVersionId,
+    ),
+    statusIdx: index("service_agreements_status_idx").on(t.status),
+    // One non-deleted agreement per accepted quote_version. If we need to
+    // reissue (e.g. customer wants to amend), the existing one gets soft-
+    // deleted and a new row is inserted.
+    quoteVersionUnique: uniqueIndex("service_agreements_quote_version_unique")
+      .on(t.quoteVersionId)
+      .where(sql`${t.deletedAt} IS NULL`),
+  }),
+);
+
+// Billing CSV sync (Week 6.1). One row per uploaded CSV — captures the
+// file's hash for idempotency, the diff snapshot for audit, and the apply
+// counters once the rep clicks Apply. The actual row writes happen against
+// `accounts.service_profile` and `accounts.last_service_date` columns
+// (see applyBillingImportAction); we keep this table small and append-only.
+//
+// Why store the file hash: monthly billing CSVs have stable content from
+// the same data source. Re-uploading the same file should be a no-op; we
+// reject with "already applied" if the hash matches an applied import.
+export const billingImports = pgTable(
+  "billing_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fileName: text("file_name").notNull(),
+    fileHash: text("file_hash").notNull(), // sha256 of raw bytes
+    fileSizeBytes: integer("file_size_bytes"),
+    uploadedByUserId: uuid("uploaded_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    appliedByUserId: uuid("applied_by_user_id").references(() => users.id),
+    status: billingImportStatusEnum("status").notNull().default("uploaded"),
+    // Per-import summary counters — populated when applied.
+    rowsTotal: integer("rows_total").notNull().default(0),
+    accountsInserted: integer("accounts_inserted").notNull().default(0),
+    accountsUpdated: integer("accounts_updated").notNull().default(0),
+    accountsSkipped: integer("accounts_skipped").notNull().default(0),
+    // Aggregate MRR delta in cents — handy for the history view ("this
+    // month's import added $X to MRR"). Stored as numeric since service
+    // pricing is non-integer dollars.
+    mrrDelta: numeric("mrr_delta", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    // The full pre-apply diff, kept around for audit and for the history
+    // view's drill-down. Shape: { rows: [{ action, accountId?, companyName,
+    // before, after, mrrDelta }, ... ] }. Pruned by an admin UI later if
+    // it gets too large.
+    diffSnapshot: jsonb("diff_snapshot"),
+    // Operator notes — "skipped X because Y" type stuff.
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uploadedByIdx: index("billing_imports_uploaded_by_idx").on(t.uploadedByUserId),
+    statusIdx: index("billing_imports_status_idx").on(t.status),
+    // Same applied file (by hash) shouldn't be applied twice. Partial unique
+    // so 'aborted' uploads of the same file don't block a future apply.
+    fileHashAppliedUnique: uniqueIndex(
+      "billing_imports_file_hash_applied_unique",
+    )
+      .on(t.fileHash)
+      .where(sql`${t.status} = 'applied'`),
+  }),
+);
+
 // ============================================================================
 // SUPPORTING TABLES
 // ============================================================================
@@ -1084,6 +1248,43 @@ export const quoteLineItemsRelations = relations(
   }),
 );
 
+export const serviceAgreementsRelations = relations(
+  serviceAgreements,
+  ({ one }) => ({
+    quoteVersion: one(quoteVersions, {
+      fields: [serviceAgreements.quoteVersionId],
+      references: [quoteVersions.id],
+    }),
+    account: one(accounts, {
+      fields: [serviceAgreements.accountId],
+      references: [accounts.id],
+    }),
+    sentEmailSend: one(emailSends, {
+      fields: [serviceAgreements.sentEmailSendId],
+      references: [emailSends.id],
+    }),
+    createdBy: one(users, {
+      fields: [serviceAgreements.createdByUserId],
+      references: [users.id],
+    }),
+    filtaSignedBy: one(users, {
+      fields: [serviceAgreements.filtaSignedByUserId],
+      references: [users.id],
+    }),
+  }),
+);
+
+export const billingImportsRelations = relations(billingImports, ({ one }) => ({
+  uploadedBy: one(users, {
+    fields: [billingImports.uploadedByUserId],
+    references: [users.id],
+  }),
+  appliedBy: one(users, {
+    fields: [billingImports.appliedByUserId],
+    references: [users.id],
+  }),
+}));
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -1108,6 +1309,10 @@ export type QuoteVersion = typeof quoteVersions.$inferSelect;
 export type NewQuoteVersion = typeof quoteVersions.$inferInsert;
 export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
 export type NewQuoteLineItem = typeof quoteLineItems.$inferInsert;
+export type ServiceAgreement = typeof serviceAgreements.$inferSelect;
+export type NewServiceAgreement = typeof serviceAgreements.$inferInsert;
+export type BillingImport = typeof billingImports.$inferSelect;
+export type NewBillingImport = typeof billingImports.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 

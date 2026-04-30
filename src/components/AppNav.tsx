@@ -30,6 +30,11 @@ export default async function AppNav() {
     }
   }
 
+  // Admin-only links surface for admin users; reps and technicians don't see
+  // them at all. Currently used for billing CSV import — small admin surface
+  // that doesn't justify a separate /admin landing page yet.
+  const isAdmin = session?.role === "admin";
+
   const NAV = [
     { href: "/dashboard", label: "Home" },
     {
@@ -43,6 +48,9 @@ export default async function AppNav() {
     { href: "/pipeline", label: "Pipeline" },
     { href: "/cross-sell", label: "Cross-Sell" },
     { href: "/at-risk", label: "At Risk" },
+    ...(isAdmin
+      ? [{ href: "/admin/billing-import", label: "Billing" }]
+      : []),
   ];
 
   return (

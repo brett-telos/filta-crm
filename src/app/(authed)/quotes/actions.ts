@@ -21,7 +21,7 @@
 // status + activity + auto-followup task) so the failure modes are
 // understood and Resend hiccups don't leave orphaned data.
 
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
@@ -33,6 +33,7 @@ import {
   opportunities,
   quoteLineItems,
   quoteVersions,
+  serviceAgreements,
   users,
   withSession,
 } from "@/db";
@@ -46,6 +47,8 @@ import {
 } from "@/lib/email-templates";
 import { renderQuotePdf } from "@/lib/pdf/QuoteDocument";
 import { quotePdfDataFromRow } from "@/lib/pdf/quote-data";
+import { renderServiceAgreementPdf } from "@/lib/pdf/ServiceAgreementDocument";
+import { agreementPdfDataFromRow } from "@/lib/pdf/agreement-data";
 import { createAutoFollowUpTask } from "../tasks/actions";
 
 // ============================================================================
@@ -640,6 +643,435 @@ Filta {{territoryLabel}}`;
 
   return {
     ok: true,
+    emailSendId: prep.emailSendId,
+    followUpTaskId: finalize.followUpTaskId,
+    devStub: sendResult.ok ? sendResult.devStub : undefined,
+  };
+}
+
+
+// ============================================================================
+// ACCEPT QUOTE — generates the Service Agreement, emails it, kicks off
+// onboarding, flips the account to customer
+// ============================================================================
+
+const AcceptQuoteInput = z.object({
+  quoteVersionId: z.string().uuid(),
+});
+
+export type AcceptQuoteResult = {
+  ok: boolean;
+  error?: string;
+  serviceAgreementId?: string;
+  emailSendId?: string;
+  followUpTaskId?: string;
+  devStub?: boolean;
+};
+
+const FIRST_VISIT_FOLLOW_UP_DAYS = 1;
+// Initial term per the corporate Service Agreement template.
+const INITIAL_TERM_YEARS = 3;
+
+/**
+ * Accept a sent quote. Pipeline:
+ *
+ *   TX1: validate (quote.status must be 'sent'), pull all the data we need
+ *        (quote + account + lines + sender), insert a service_agreements
+ *        row in 'draft', insert email_sends queued, render the agreement
+ *        PDF buffer.
+ *   network: Resend with PDF attached (uses 'service_agreement_v1' template
+ *            if seeded; otherwise hardcoded fallback).
+ *   TX2: on success, mark agreement 'sent', mark quote 'accepted', flip
+ *        account_status -> 'customer' (if currently prospect), set
+ *        sales_funnel_stage='closed_won', advance the parent opportunity
+ *        to 'closed_won' with stamped actualCloseDate, write a 'Sent: ...'
+ *        outbound activity, create a high-priority "Schedule first visit"
+ *        task due tomorrow.
+ *
+ * Idempotency: if the quote is already 'accepted', returns the existing
+ * agreement id without doing anything else. Re-clicking the button is a
+ * safe no-op.
+ */
+export async function acceptQuoteAction(
+  input: z.infer<typeof AcceptQuoteInput>,
+): Promise<AcceptQuoteResult> {
+  const session = await requireSession();
+  const parsed = AcceptQuoteInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "Invalid input" };
+  }
+  const { quoteVersionId } = parsed.data;
+
+  // ---- TX1: validate, snapshot, queue ------------------------------------
+  const prep = await withSession(session, async (tx) => {
+    const [row] = await tx
+      .select({
+        id: quoteVersions.id,
+        opportunityId: quoteVersions.opportunityId,
+        versionNumber: quoteVersions.versionNumber,
+        status: quoteVersions.status,
+        customerCompanyName: quoteVersions.customerCompanyName,
+        customerAddress: quoteVersions.customerAddress,
+        customerContactName: quoteVersions.customerContactName,
+        customerContactEmail: quoteVersions.customerContactEmail,
+        accountId: opportunities.accountId,
+        accountStatus: accounts.accountStatus,
+        accountTerritory: accounts.territory,
+        accountPhone: accounts.phone,
+        oppStage: opportunities.stage,
+        senderFirstName: users.firstName,
+        senderLastName: users.lastName,
+        senderEmail: users.email,
+      })
+      .from(quoteVersions)
+      .innerJoin(
+        opportunities,
+        eq(opportunities.id, quoteVersions.opportunityId),
+      )
+      .innerJoin(accounts, eq(accounts.id, opportunities.accountId))
+      .leftJoin(users, eq(users.id, quoteVersions.createdByUserId))
+      .where(eq(quoteVersions.id, quoteVersionId))
+      .limit(1);
+
+    if (!row) return { kind: "error" as const, error: "Quote not found" };
+    if (
+      session.territory !== "both" &&
+      row.accountTerritory !== session.territory &&
+      row.accountTerritory !== "unassigned"
+    ) {
+      return { kind: "error" as const, error: "Access denied" };
+    }
+
+    // Idempotency — already accepted is a no-op success.
+    if (row.status === "accepted") {
+      const [existing] = await tx
+        .select({ id: serviceAgreements.id })
+        .from(serviceAgreements)
+        .where(
+          and(
+            eq(serviceAgreements.quoteVersionId, row.id),
+            isNull(serviceAgreements.deletedAt),
+          ),
+        )
+        .limit(1);
+      return {
+        kind: "already_accepted" as const,
+        serviceAgreementId: existing?.id,
+      };
+    }
+
+    if (row.status !== "sent") {
+      return {
+        kind: "error" as const,
+        error: `Cannot accept a quote that is in '${row.status}' status — send it first`,
+      };
+    }
+    if (!row.customerContactEmail) {
+      return {
+        kind: "error" as const,
+        error: "No contact email on file — required to send agreement",
+      };
+    }
+
+    const lines = await tx
+      .select()
+      .from(quoteLineItems)
+      .where(eq(quoteLineItems.quoteVersionId, quoteVersionId))
+      .orderBy(asc(quoteLineItems.displayOrder));
+
+    // Term dates — 3-year initial term per corporate template.
+    const termStart = new Date();
+    const termEnd = new Date(termStart);
+    termEnd.setUTCFullYear(termEnd.getUTCFullYear() + INITIAL_TERM_YEARS);
+
+    // Insert the service_agreements row in 'draft' so the row exists when
+    // we generate the PDF (the agreementRef in the PDF derives from row.id).
+    const [agreementRow] = await tx
+      .insert(serviceAgreements)
+      .values({
+        quoteVersionId: row.id,
+        accountId: row.accountId,
+        status: "draft",
+        termStartDate: termStart.toISOString().slice(0, 10),
+        termEndDate: termEnd.toISOString().slice(0, 10),
+        sentToEmail: row.customerContactEmail,
+        createdByUserId: session.sub,
+      })
+      .returning({
+        id: serviceAgreements.id,
+        createdAt: serviceAgreements.createdAt,
+      });
+
+    // Resolve template (proposal_sent purpose works for now; if a dedicated
+    // service_agreement_v1 is seeded, future flow can switch).
+    const [tpl] = await tx
+      .select()
+      .from(messageTemplates)
+      .where(
+        and(
+          eq(messageTemplates.key, "service_agreement_v1"),
+          eq(messageTemplates.active, true),
+        ),
+      )
+      .limit(1);
+
+    const sender = senderIdentityFor(row.accountTerritory);
+    const senderFirstName = row.senderFirstName ?? sender.fromName;
+    const senderFullName =
+      [row.senderFirstName, row.senderLastName].filter(Boolean).join(" ") ||
+      sender.fromName;
+
+    const vars = {
+      firstName: row.customerContactName?.split(" ")[0] || "there",
+      companyName: row.customerCompanyName,
+      senderFirstName,
+      senderFullName,
+      territoryLabel: sender.territoryLabel,
+      agreementRef: `SA-${agreementRow.id.slice(0, 6)}`,
+    };
+
+    const subjectTemplate =
+      tpl?.subjectTemplate ??
+      "Welcome to Filta — your service agreement is attached";
+    const htmlTemplate =
+      tpl?.bodyHtmlTemplate ??
+      `<p>Hi {{firstName}},</p>
+<p>Thanks for choosing Filta. Attached is the Service Agreement for <strong>{{companyName}}</strong>. Take a look and sign at your convenience — once we have it back, we'll schedule the first visit.</p>
+<p>I'll be in touch in the next day or two to lock in a start date. If you have questions before then, just reply to this email or give me a call.</p>
+<p>Thanks,<br/><strong>{{senderFirstName}}</strong><br/>Filta {{territoryLabel}}</p>`;
+    const textTemplate =
+      tpl?.bodyTextTemplate ??
+      `Hi {{firstName}},
+
+Thanks for choosing Filta. Attached is the Service Agreement for {{companyName}}. Sign at your convenience — once we have it back, we'll schedule the first visit.
+
+I'll be in touch in the next day or two to lock in a start date.
+
+Thanks,
+{{senderFirstName}}
+Filta {{territoryLabel}}`;
+
+    const renderedSubject = renderTemplate(subjectTemplate, vars);
+    const renderedHtmlFragment = renderTemplate(htmlTemplate, vars);
+    const renderedText = renderTemplate(textTemplate, vars);
+    const renderedHtml = wrapInBaseHtml({
+      territory: row.accountTerritory,
+      contentHtml: renderedHtmlFragment,
+      preheader: `Service Agreement for ${row.customerCompanyName} — sign at your convenience.`,
+    });
+
+    // Render the agreement PDF.
+    const pdfBuffer = await renderServiceAgreementPdf(
+      agreementPdfDataFromRow(
+        {
+          id: agreementRow.id,
+          status: "draft",
+          quoteVersionId: row.id,
+          versionNumber: row.versionNumber,
+          accountTerritory: row.accountTerritory,
+          customerCompanyName: row.customerCompanyName,
+          customerAddress: row.customerAddress,
+          customerContactName: row.customerContactName,
+          customerContactEmail: row.customerContactEmail,
+          customerContactPhone: row.accountPhone,
+          customerSignedName: null,
+          customerSignedAt: null,
+          termStartDate: termStart.toISOString().slice(0, 10),
+          termEndDate: termEnd.toISOString().slice(0, 10),
+          senderFirstName: row.senderFirstName,
+          senderLastName: row.senderLastName,
+          senderEmail: row.senderEmail,
+          createdAt: agreementRow.createdAt as Date,
+        },
+        lines,
+      ),
+    );
+
+    // Snapshot the queued send.
+    const [send] = await tx
+      .insert(emailSends)
+      .values({
+        accountId: row.accountId,
+        contactId: null,
+        opportunityId: row.opportunityId,
+        templateId: tpl?.id ?? null,
+        fromEmail: sender.fromEmail,
+        fromName: sender.fromName,
+        toEmail: row.customerContactEmail,
+        subject: renderedSubject,
+        bodyHtml: renderedHtml,
+        bodyText: renderedText,
+        status: "queued",
+        sentByUserId: session.sub,
+      })
+      .returning({ id: emailSends.id });
+
+    return {
+      kind: "ready" as const,
+      serviceAgreementId: agreementRow.id,
+      emailSendId: send.id,
+      quoteVersionId: row.id,
+      opportunityId: row.opportunityId,
+      accountId: row.accountId,
+      accountStatus: row.accountStatus,
+      oppStage: row.oppStage,
+      companyName: row.customerCompanyName,
+      toEmail: row.customerContactEmail,
+      subject: renderedSubject,
+      html: renderedHtml,
+      text: renderedText,
+      fromEmail: sender.fromEmail,
+      fromName: sender.fromName,
+      replyTo:
+        process.env.EMAIL_REPLY_TO || replyAddressFor(row.accountTerritory, send.id),
+      pdfBuffer,
+      pdfFilename: `Filta-ServiceAgreement-${vars.agreementRef}.pdf`,
+    };
+  });
+
+  if (prep.kind === "error") return { ok: false, error: prep.error };
+  if (prep.kind === "already_accepted") {
+    return {
+      ok: true,
+      serviceAgreementId: prep.serviceAgreementId,
+    };
+  }
+
+  // ---- network -----------------------------------------------------------
+  const sendResult = await sendEmail({
+    from: prep.fromEmail,
+    fromName: prep.fromName,
+    to: prep.toEmail,
+    subject: prep.subject,
+    html: prep.html,
+    text: prep.text,
+    replyTo: prep.replyTo,
+    tags: [{ name: "campaign", value: "service_agreement" }],
+    attachments: [
+      {
+        filename: prep.pdfFilename,
+        content: prep.pdfBuffer.toString("base64"),
+      },
+    ],
+  });
+
+  // ---- TX2: finalize on success / mark failed otherwise ------------------
+  const finalize = await withSession(session, async (tx) => {
+    if (!sendResult.ok) {
+      await tx
+        .update(emailSends)
+        .set({ status: "failed", providerError: sendResult.error })
+        .where(eq(emailSends.id, prep.emailSendId));
+      // Leave the agreement row in 'draft' so a retry from the UI just
+      // re-runs the email send without rebuilding the agreement.
+      return { kind: "failed" as const, error: sendResult.error };
+    }
+
+    const now = new Date();
+
+    // 1. Mark the email_sends row sent
+    await tx
+      .update(emailSends)
+      .set({
+        status: "sent",
+        providerMessageId: sendResult.providerMessageId,
+        sentAt: now,
+      })
+      .where(eq(emailSends.id, prep.emailSendId));
+
+    // 2. Mark the agreement sent + link the email
+    await tx
+      .update(serviceAgreements)
+      .set({
+        status: "sent",
+        sentAt: now,
+        sentEmailSendId: prep.emailSendId,
+        updatedAt: now,
+      })
+      .where(eq(serviceAgreements.id, prep.serviceAgreementId));
+
+    // 3. Mark the quote accepted
+    await tx
+      .update(quoteVersions)
+      .set({
+        status: "accepted",
+        acceptedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(quoteVersions.id, prep.quoteVersionId));
+
+    // 4. Flip the account to customer (if it was a prospect) and stamp
+    //    funnel stage. Already-customer accounts get the funnel update too
+    //    so the win is recorded for analytics even on an upsell.
+    await tx
+      .update(accounts)
+      .set({
+        accountStatus: "customer",
+        salesFunnelStage: "closed_won",
+        salesFunnelStageChangedAt: now,
+        convertedAt:
+          prep.accountStatus === "prospect"
+            ? now
+            : sql`coalesce(${accounts.convertedAt}, ${now})`,
+        updatedAt: now,
+      })
+      .where(eq(accounts.id, prep.accountId));
+
+    // 5. Advance the parent opportunity to closed_won
+    await tx
+      .update(opportunities)
+      .set({
+        stage: "closed_won",
+        stageChangedAt: now,
+        actualCloseDate: now.toISOString().slice(0, 10),
+        updatedAt: now,
+      })
+      .where(eq(opportunities.id, prep.opportunityId));
+
+    // 6. Activity timeline entry
+    await tx.insert(activities).values({
+      accountId: prep.accountId,
+      opportunityId: prep.opportunityId,
+      type: "email",
+      direction: "outbound",
+      subject: `Sent: ${prep.subject}`,
+      body: `Service Agreement emailed to ${prep.toEmail}. Quote accepted; account converted to customer.`,
+      ownerUserId: session.sub,
+    });
+
+    // 7. First-visit onboarding task — high priority, due tomorrow.
+    const followUpTaskId = await createAutoFollowUpTask(tx, {
+      accountId: prep.accountId,
+      opportunityId: prep.opportunityId,
+      assigneeUserId: session.sub,
+      title: `Schedule first visit at ${prep.companyName}`,
+      notes: `Auto-created on quote acceptance. Confirm a start date with the customer and add to the route.`,
+      daysOut: FIRST_VISIT_FOLLOW_UP_DAYS,
+      autoSource: "onboarding_first_visit_v1",
+    });
+
+    return { kind: "sent" as const, followUpTaskId };
+  });
+
+  revalidatePath("/pipeline");
+  revalidatePath("/today");
+  revalidatePath(`/accounts/${prep.accountId}`);
+  revalidatePath(`/opportunities/${prep.opportunityId}/quote`);
+  revalidatePath("/cross-sell");
+  revalidatePath("/at-risk");
+
+  if (finalize.kind === "failed") {
+    return {
+      ok: false,
+      error: finalize.error ?? "Send failed (agreement saved as draft)",
+      serviceAgreementId: prep.serviceAgreementId,
+      emailSendId: prep.emailSendId,
+    };
+  }
+
+  return {
+    ok: true,
+    serviceAgreementId: prep.serviceAgreementId,
     emailSendId: prep.emailSendId,
     followUpTaskId: finalize.followUpTaskId,
     devStub: sendResult.ok ? sendResult.devStub : undefined,
