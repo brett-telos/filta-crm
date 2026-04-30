@@ -14,6 +14,7 @@ import {
   activities,
   users,
   emailSends,
+  serviceAgreements,
 } from "@/db";
 import { requireSession, canAccessTerritory } from "@/lib/session";
 import {
@@ -63,7 +64,7 @@ export default async function AccountDetailPage({
     notFound();
   }
 
-  const [contactRows, oppRows, activityRows, openTasks, emailRows] =
+  const [contactRows, oppRows, activityRows, openTasks, emailRows, agreementRows] =
     await Promise.all([
       db
         .select()
@@ -126,6 +127,29 @@ export default async function AccountDetailPage({
         .where(eq(emailSends.accountId, acct.id))
         .orderBy(desc(emailSends.createdAt))
         .limit(10),
+      // Service agreements for this account. Shown as a card on the right
+      // column when at least one exists; gives the rep a one-click path to
+      // the signable PDF and surfaces the term dates.
+      db
+        .select({
+          id: serviceAgreements.id,
+          status: serviceAgreements.status,
+          termStartDate: serviceAgreements.termStartDate,
+          termEndDate: serviceAgreements.termEndDate,
+          customerSignedAt: serviceAgreements.customerSignedAt,
+          customerSignedName: serviceAgreements.customerSignedName,
+          sentAt: serviceAgreements.sentAt,
+          createdAt: serviceAgreements.createdAt,
+        })
+        .from(serviceAgreements)
+        .where(
+          and(
+            eq(serviceAgreements.accountId, acct.id),
+            isNull(serviceAgreements.deletedAt),
+          ),
+        )
+        .orderBy(desc(serviceAgreements.createdAt))
+        .limit(5),
     ]);
 
   const sp = (acct.serviceProfile as Record<string, any>) ?? {};
@@ -295,6 +319,65 @@ export default async function AccountDetailPage({
               </ul>
             )}
           </Card>
+
+          {agreementRows.length > 0 ? (
+            <Card title={`Service agreements (${agreementRows.length})`}>
+              <ul className="divide-y divide-slate-100 text-sm">
+                {agreementRows.map((a) => {
+                  const ref = `SA-${a.id.slice(0, 6)}`;
+                  return (
+                    <li
+                      key={a.id}
+                      className="flex items-start justify-between gap-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900">
+                          {ref}
+                          <span
+                            className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                              a.status === "signed" || a.status === "active"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : a.status === "sent"
+                                  ? "bg-blue-50 text-blue-700"
+                                  : a.status === "terminated"
+                                    ? "bg-rose-50 text-rose-700"
+                                    : "bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            {a.status}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          {a.termStartDate && a.termEndDate
+                            ? `Term ${a.termStartDate} → ${a.termEndDate}`
+                            : `Created ${new Date(a.createdAt as Date).toLocaleDateString()}`}
+                        </div>
+                        {a.customerSignedAt ? (
+                          <div className="text-xs text-emerald-700">
+                            Signed by {a.customerSignedName ?? "customer"} on{" "}
+                            {new Date(a.customerSignedAt as Date).toLocaleDateString()}
+                          </div>
+                        ) : a.sentAt ? (
+                          <div className="text-xs text-slate-500">
+                            Awaiting signature — sent{" "}
+                            {new Date(a.sentAt as Date).toLocaleDateString()}
+                          </div>
+                        ) : null}
+                      </div>
+                      <a
+                        href={`/api/agreements/${a.id}/pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Download PDF
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          ) : null}
 
           <Card
             title={`Emails sent${emailRows.length ? ` (${emailRows.length})` : ""}`}

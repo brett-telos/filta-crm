@@ -95,6 +95,34 @@ const PROPOSAL_SENT_V1_HTML = `<p>Hi {{firstName}},</p>
 <strong>{{senderFirstName}}</strong><br>
 <span style="color:#475569;">Filta {{territoryLabel}}</span></p>`;
 
+
+// ---------- SERVICE AGREEMENT v1 (Week 6.0) ----------
+//
+// Goes out with the multi-page Service Agreement PDF when a quote is
+// accepted. Tone: warm welcome + light next-step nudge. The PDF carries
+// the legal weight; the email's job is to make signing feel routine and
+// to set expectations on first-visit scheduling.
+
+const SERVICE_AGREEMENT_V1_TEXT = `Hi {{firstName}},
+
+Thanks for choosing Filta. Attached is the Service Agreement for {{companyName}}. Sign at your convenience and send it back — once we have it on file, we'll lock in a first-visit date.
+
+I'll be in touch in the next day or two to get scheduling sorted. If you have questions before then, just reply or give me a call.
+
+Welcome aboard,
+{{senderFirstName}}
+Filta {{territoryLabel}}`;
+
+const SERVICE_AGREEMENT_V1_HTML = `<p>Hi {{firstName}},</p>
+
+<p>Thanks for choosing Filta. Attached is the Service Agreement for <strong>{{companyName}}</strong>. Sign at your convenience and send it back &mdash; once we have it on file, we'll lock in a first-visit date.</p>
+
+<p>I'll be in touch in the next day or two to get scheduling sorted. If you have questions before then, just reply or give me a call.</p>
+
+<p style="margin-top:20px;">Welcome aboard,<br>
+<strong>{{senderFirstName}}</strong><br>
+<span style="color:#475569;">Filta {{territoryLabel}}</span></p>`;
+
 export const TEMPLATE_SEEDS: TemplateSeed[] = [
   {
     key: "fs_cross_sell_v1",
@@ -112,6 +140,15 @@ export const TEMPLATE_SEEDS: TemplateSeed[] = [
     subjectTemplate: "Your Filta proposal — {{companyName}}",
     bodyHtmlTemplate: PROPOSAL_SENT_V1_HTML,
     bodyTextTemplate: PROPOSAL_SENT_V1_TEXT,
+  },
+  {
+    key: "service_agreement_v1",
+    purpose: "other",
+    name: "Service Agreement — v1 (welcome cover)",
+    subjectTemplate:
+      "Welcome to Filta — your service agreement is attached",
+    bodyHtmlTemplate: SERVICE_AGREEMENT_V1_HTML,
+    bodyTextTemplate: SERVICE_AGREEMENT_V1_TEXT,
   },
 ];
 
