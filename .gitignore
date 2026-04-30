@@ -1,15 +1,39 @@
+# Dependencies
 node_modules/
+
+# Next.js build output
 .next/
 out/
 build/
 dist/
+
+# Environment files
 .env
 .env.local
 .env.production
+.env.*.local
+
+# Logs
 *.log
+npm-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build / cache
 .turbo
 .cache
+.cache/
+.upm/
 .vercel
+
+# Replit
 .replit.local
+
+# Coverage
 coverage/
