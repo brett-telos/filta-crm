@@ -29,6 +29,9 @@ import {
 } from "@/lib/format";
 import LogActivityForm from "./LogActivityForm";
 import SalesFunnelWidget from "./SalesFunnelWidget";
+import EditableInfoCard from "./EditableInfoCard";
+import EditableServicesCard from "./EditableServicesCard";
+import EditableContactsCard from "./EditableContactsCard";
 import { updateAccountAction } from "./actions";
 import { getOpenTasksForAccount } from "../../tasks/actions";
 import { TaskRow } from "../../today/TaskRow";
@@ -174,117 +177,45 @@ export default async function AccountDetailPage({
             so the primary action is within thumb reach right after the
             header. */}
         <div className="order-2 space-y-4 lg:order-1 lg:col-span-1">
-          <Card title="Location">
-            <dl className="space-y-1 text-sm">
-              {acct.addressLine1 ? <Dt>{acct.addressLine1}</Dt> : null}
-              {acct.addressLine2 ? <Dt>{acct.addressLine2}</Dt> : null}
-              <Dt>
-                {[acct.city, acct.state, acct.zip].filter(Boolean).join(", ")}
-              </Dt>
-              {acct.county ? (
-                <Dt className="text-slate-500">{acct.county} County</Dt>
-              ) : null}
-              {acct.website ? (
-                <Dt>
-                  <a
-                    href={acct.website.startsWith("http") ? acct.website : `https://${acct.website}`}
-                    className="text-slate-700 underline"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {acct.website}
-                  </a>
-                </Dt>
-              ) : null}
-            </dl>
-          </Card>
+          <EditableInfoCard
+            acct={{
+              id: acct.id,
+              companyName: acct.companyName,
+              dbaName: acct.dbaName,
+              addressLine1: acct.addressLine1,
+              addressLine2: acct.addressLine2,
+              city: acct.city,
+              state: acct.state,
+              zip: acct.zip,
+              county: acct.county,
+              phone: acct.phone,
+              website: acct.website,
+              industrySegment: acct.industrySegment,
+              leadSource: acct.leadSource,
+              fryerCount: acct.fryerCount,
+              ncaFlag: acct.ncaFlag,
+              ncaName: acct.ncaName,
+            }}
+          />
 
-          <Card title="Services">
-            <div className="space-y-2 text-sm">
-              {(["ff", "fs", "fb", "fg", "fc", "fd"] as const).map((k) => {
-                const entry = sp?.[k] ?? {};
-                const active = entry?.active === true;
-                const rev = Number(entry?.monthly_revenue ?? 0);
-                return (
-                  <div
-                    key={k}
-                    className="flex items-center justify-between border-b border-slate-100 pb-1 last:border-0"
-                  >
-                    <div>
-                      <div className="font-medium text-slate-900">
-                        {SERVICE_LABEL[k]}
-                      </div>
-                      <div className="text-xs uppercase text-slate-500">
-                        {active ? "Active" : "—"}
-                      </div>
-                    </div>
-                    <div className="text-right text-sm">
-                      {active ? (
-                        <>
-                          <div className="font-medium text-slate-900">
-                            {formatCurrency(rev)}/mo
-                          </div>
-                          {entry.last_service_date ? (
-                            <div className="text-xs text-slate-500">
-                              Last: {entry.last_service_date}
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {acct.fryerCount != null ? (
-                <div className="pt-2 text-xs text-slate-500">
-                  Fryer count: <span className="font-medium text-slate-700">{acct.fryerCount}</span>
-                </div>
-              ) : null}
-            </div>
-          </Card>
+          <EditableServicesCard accountId={acct.id} serviceProfile={sp} />
 
-          <Card title="Contacts">
-            {contactRows.length === 0 ? (
-              <p className="text-sm text-slate-500">No contacts yet.</p>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {contactRows.map((c) => (
-                  <li key={c.id}>
-                    <div className="font-medium text-slate-900">
-                      {c.fullName || `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "—"}
-                      {c.isPrimary ? (
-                        <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700">
-                          Primary
-                        </span>
-                      ) : null}
-                    </div>
-                    {c.title ? (
-                      <div className="text-xs text-slate-500">{c.title}</div>
-                    ) : null}
-                    <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-slate-600">
-                      {c.email ? (
-                        <a href={`mailto:${c.email}`} className="hover:underline">
-                          {c.email}
-                        </a>
-                      ) : null}
-                      {c.phoneDirect ? (
-                        <a href={`tel:${c.phoneDirect}`} className="hover:underline">
-                          {formatPhone(c.phoneDirect)}
-                        </a>
-                      ) : null}
-                      {c.phoneMobile ? (
-                        <a href={`tel:${c.phoneMobile}`} className="hover:underline">
-                          {formatPhone(c.phoneMobile)} (mobile)
-                        </a>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+          <EditableContactsCard
+            accountId={acct.id}
+            contacts={contactRows.map((c) => ({
+              id: c.id,
+              firstName: c.firstName,
+              lastName: c.lastName,
+              fullName: c.fullName,
+              title: c.title,
+              email: c.email,
+              phoneDirect: c.phoneDirect,
+              phoneMobile: c.phoneMobile,
+              decisionMakerRole: c.decisionMakerRole,
+              preferredChannel: c.preferredChannel,
+              isPrimary: c.isPrimary,
+            }))}
+          />
         </div>
 
         {/* Right column — actions. Mobile order-1 puts this first. */}
@@ -532,16 +463,6 @@ function Card({
       {children}
     </section>
   );
-}
-
-function Dt({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return <div className={`text-slate-700 ${className}`}>{children}</div>;
 }
 
 // Compact status pill for email_sends rows. Colors chosen to match the rest
