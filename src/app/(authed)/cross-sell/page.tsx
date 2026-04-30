@@ -35,6 +35,12 @@ type Row = {
   // Primary-contact email (or any contact email as fallback). Powers the
   // "Send FS email" button — disabled when null/empty.
   contact_email: string | null;
+  // Existing open FS opportunity for this account, if any. After the
+  // cross-sell backfill (Apr 2026) every customer has a `new_lead` FS opp,
+  // so we no longer exclude these from the queue — instead we surface the
+  // opp id/stage so the row swaps "Create FS opp" for "Open FS opp →".
+  fs_opp_id: string | null;
+  fs_opp_stage: string | null;
   // Engagement summary from the most recent FS cross-sell email_sends row
   // for this account. Null when no FS email has been sent yet. Populated
   // via a lateral join below so we don't fan out per-row.
@@ -107,6 +113,8 @@ export default async function CrossSellPage({
       u.first_name as owner_first_name,
       u.email as owner_email,
       c.email as contact_email,
+      o.id as fs_opp_id,
+      o.stage as fs_opp_stage,
       es.created_at as last_send_at,
       es.status as last_send_status,
       es.open_count as last_send_open_count,
@@ -123,6 +131,20 @@ export default async function CrossSellPage({
       order by is_primary desc, updated_at desc
       limit 1
     ) c on true
+    -- The current open FS opportunity for this account, if one exists.
+    -- After the Apr 2026 backfill every customer has a new_lead FS opp,
+    -- so we surface its id+stage instead of excluding the row. The row
+    -- swaps "Create FS opp" for "Open FS opp" when this is non-null.
+    left join lateral (
+      select o_inner.id, o_inner.stage
+      from opportunities o_inner
+      where o_inner.account_id = a.id
+        and o_inner.service_type = 'fs'
+        and o_inner.stage not in ('closed_won','closed_lost')
+        and o_inner.deleted_at is null
+      order by o_inner.created_at desc
+      limit 1
+    ) o on true
     -- Most recent FS cross-sell email per account. Lateral join keeps the
     -- per-row cost bounded — we only ever look at the latest send for the
     -- engagement chip; older sends are visible on the account detail card.
@@ -145,13 +167,6 @@ export default async function CrossSellPage({
       and (a.service_profile->'ff'->>'active')::boolean = true
       and coalesce((a.service_profile->'fs'->>'active')::boolean, false) = false
       and a.deleted_at is null
-      and not exists (
-        select 1 from opportunities o
-        where o.account_id = a.id
-          and o.service_type = 'fs'
-          and o.stage not in ('closed_won','closed_lost')
-          and o.deleted_at is null
-      )
       ${territoryClause}
     ${orderClause}
   `);
@@ -315,7 +330,16 @@ export default async function CrossSellPage({
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex flex-col items-end gap-1.5">
-                          <CreateFsButton accountId={r.id} />
+                          {r.fs_opp_id ? (
+                            <Link
+                              href={`/opportunities/${r.fs_opp_id}/quote`}
+                              className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-md bg-service-fs px-3 py-2 text-xs font-semibold text-white shadow-sm hover:brightness-95"
+                            >
+                              Open FS opp →
+                            </Link>
+                          ) : (
+                            <CreateFsButton accountId={r.id} />
+                          )}
                           <SendEmailButton
                             accountId={r.id}
                             companyName={r.company_name}
