@@ -249,5 +249,4 @@ at the DB layer even if the in-code check is ever bypassed.
 
 ---
 
-_Generated during the Week 1 scaffolding sprint (Apr 2026). Design doc:
-`/Users/brettmerrill/Dropbox (Personal)/Telos/1. Corporate/Library/Claude/Filta-CRM-Design.md`._
+## filta-crm

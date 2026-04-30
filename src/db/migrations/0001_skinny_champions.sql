@@ -1,4 +1,4 @@
-ALTER TYPE "service_type" ADD VALUE 'fd';--> statement-breakpoint
+DO $$ BEGIN ALTER TYPE "service_type" ADD VALUE 'fd'; EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "password_reset_tokens" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
