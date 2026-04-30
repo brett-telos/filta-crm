@@ -37,3 +37,12 @@ Thumbs.db
 
 # Coverage
 coverage/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Zip artifacts (deliverable zips don't belong in source)
+*.zip
+
+# Replit upload scratch dir
+attached_assets/
