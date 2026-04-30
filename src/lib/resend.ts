@@ -44,6 +44,11 @@ export type SendEmailInput = {
   replyTo?: string;
   // Tags let us filter/search in the Resend dashboard later (e.g. by campaign).
   tags?: Array<{ name: string; value: string }>;
+  // Attachments (W5.1 — quote PDFs). Resend expects each attachment as
+  // { filename, content } where content is base64-encoded bytes. We don't
+  // surface a Buffer in the type so the wrapper stays usable from edge
+  // contexts later if we ever move it.
+  attachments?: Array<{ filename: string; content: string }>;
 };
 
 export type SendEmailResult =
@@ -97,6 +102,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         text: input.text,
         reply_to: input.replyTo,
         tags: input.tags,
+        attachments: input.attachments,
       }),
     });
 

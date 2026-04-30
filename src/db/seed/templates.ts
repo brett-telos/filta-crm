@@ -68,6 +68,33 @@ const FS_CROSS_SELL_V1_HTML = `<p>Hi {{firstName}},</p>
 <strong>{{senderFirstName}}</strong><br>
 <span style="color:#475569;">Filta {{territoryLabel}}</span></p>`;
 
+// ---------- PROPOSAL SENT v1 (Week 5.1) ----------
+//
+// Cover note that goes out with a quote PDF attachment. Short and warm —
+// the PDF carries the full proposal; the email's job is to make sure the
+// recipient actually opens it. Includes the headline annual value so the
+// recipient can scan from preview pane without opening the attachment.
+
+const PROPOSAL_SENT_V1_TEXT = `Hi {{firstName}},
+
+Attached is the Filta proposal for {{companyName}}. Headline: {{annualValue}} estimated annual value across the services we discussed.
+
+Take a look when you have a moment. Reply or call if you want to talk through any of it — once you're ready to move forward we'll send the full Service Agreement for signature and schedule the first visit within a week.
+
+Thanks,
+{{senderFirstName}}
+Filta {{territoryLabel}}`;
+
+const PROPOSAL_SENT_V1_HTML = `<p>Hi {{firstName}},</p>
+
+<p>Attached is the Filta proposal for <strong>{{companyName}}</strong>. Headline: <strong>{{annualValue}}</strong> estimated annual value across the services we discussed.</p>
+
+<p>Take a look when you have a moment. Reply or call if you want to talk through any of it — once you're ready to move forward we'll send the full Service Agreement for signature and schedule the first visit within a week.</p>
+
+<p style="margin-top:20px;">Thanks,<br>
+<strong>{{senderFirstName}}</strong><br>
+<span style="color:#475569;">Filta {{territoryLabel}}</span></p>`;
+
 export const TEMPLATE_SEEDS: TemplateSeed[] = [
   {
     key: "fs_cross_sell_v1",
@@ -77,6 +104,14 @@ export const TEMPLATE_SEEDS: TemplateSeed[] = [
       "Quick favor, {{firstName}} — hood cleaning at {{companyName}}",
     bodyHtmlTemplate: FS_CROSS_SELL_V1_HTML,
     bodyTextTemplate: FS_CROSS_SELL_V1_TEXT,
+  },
+  {
+    key: "proposal_sent_v1",
+    purpose: "proposal_sent",
+    name: "Proposal Sent — v1 (cover note)",
+    subjectTemplate: "Your Filta proposal — {{companyName}}",
+    bodyHtmlTemplate: PROPOSAL_SENT_V1_HTML,
+    bodyTextTemplate: PROPOSAL_SENT_V1_TEXT,
   },
 ];
 

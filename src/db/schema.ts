@@ -214,6 +214,33 @@ export const messageTemplatePurposeEnum = pgEnum("message_template_purpose", [
   "other",
 ]);
 
+// Quote lifecycle (Week 5.1).
+//   draft     — being edited, never sent
+//   sent      — emailed to customer, waiting on response
+//   accepted  — customer signed off (manual flip)
+//   declined  — customer said no
+//   expired   — valid_until has passed without acceptance
+export const quoteStatusEnum = pgEnum("quote_status", [
+  "draft",
+  "sent",
+  "accepted",
+  "declined",
+  "expired",
+]);
+
+// Per-line frequency. The corporate Service Agreement uses Service ×
+// Frequency × Pricing × Opt-In as the rate grid; this enum captures the
+// frequency dimension. "per_visit" = one charge per scheduled service
+// (FF cadence, typically weekly); "one_time" = an installation fee or
+// initial deep-clean.
+export const quoteFrequencyEnum = pgEnum("quote_frequency", [
+  "per_visit",
+  "monthly",
+  "quarterly",
+  "annual",
+  "one_time",
+]);
+
 // ============================================================================
 // USERS
 // ============================================================================
@@ -681,6 +708,145 @@ export const emailEvents = pgTable(
 );
 
 // ============================================================================
+// QUOTES (Week 5.1)
+// ============================================================================
+//
+// A quote is a versioned, customer-facing proposal tied to an opportunity.
+// Reps build it by editing line items (each derived from the corporate
+// Service Agreement's Service × Frequency × Pricing × Opt-In grid), then
+// "Send quote" generates a branded PDF, attaches it to a Resend email, and
+// transitions the opportunity stage to 'proposal'.
+//
+// Why versioned: customers negotiate. v1 has 4 fryers; customer pushes
+// back; v2 drops to 3 + adds FS deep-clean; customer accepts v2. We want
+// the v1 PDF preserved for audit, not silently overwritten.
+//
+// Customer details (company name, address, billing contact) are SNAPSHOTTED
+// at quote creation time. The customer's account record may evolve (rep
+// updates the address) but the PDF the customer received should still
+// reflect what they got. Per-quote snapshots avoid having to regenerate
+// every old PDF when an address changes.
+
+export const quoteVersions = pgTable(
+  "quote_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    opportunityId: uuid("opportunity_id")
+      .notNull()
+      .references(() => opportunities.id, { onDelete: "cascade" }),
+    // Monotonically increasing per opportunity. App-managed; we don't
+    // bother with a DB sequence because version numbers are tiny ints
+    // and the per-opportunity sequencing is well-defined in the action.
+    versionNumber: integer("version_number").notNull(),
+    status: quoteStatusEnum("status").notNull().default("draft"),
+    // Customer snapshot at quote creation time. Frozen even if the parent
+    // account changes later.
+    customerCompanyName: text("customer_company_name").notNull(),
+    customerAddress: jsonb("customer_address"), // {line1, line2, city, state, zip}
+    customerContactName: text("customer_contact_name"),
+    customerContactEmail: text("customer_contact_email"),
+    // Computed totals — duplicated from line items for convenience. Kept
+    // in sync by the save action; a fully-app-managed sum, no triggers.
+    subtotalMonthly: numeric("subtotal_monthly", {
+      precision: 12,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    subtotalQuarterly: numeric("subtotal_quarterly", {
+      precision: 12,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    subtotalOneTime: numeric("subtotal_one_time", {
+      precision: 12,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    // Annualized total — display-friendly headline for the PDF and the UI.
+    estimatedAnnual: numeric("estimated_annual", {
+      precision: 12,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    // Quote expiry. Defaults to 30 days from creation in the action; null
+    // means no explicit expiry. The PDF prints this as "Valid until X".
+    validUntil: date("valid_until"),
+    // Free-form notes the rep wants on the quote (e.g. "includes first
+    // month free", "scheduling tied to Q3 ramp"). Rendered on the PDF.
+    notes: text("notes"),
+    // FK back to the email_sends row that delivered this version (if any).
+    // Null until "Send quote" fires; lets the UI show "Sent on X with
+    // attachment Y.pdf" without joining through email_sends.
+    sentEmailSendId: uuid("sent_email_send_id").references(() => emailSends.id, {
+      onDelete: "set null",
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    declinedAt: timestamp("declined_at", { withTimezone: true }),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    opportunityIdx: index("quote_versions_opportunity_idx").on(t.opportunityId),
+    statusIdx: index("quote_versions_status_idx").on(t.status),
+    // (opportunityId, versionNumber) is the natural identity for a quote.
+    // Unique among non-deleted rows so a rep can't accidentally write two
+    // v3s; soft-deleted versions are excluded so a deletion doesn't block
+    // a legitimate new version.
+    opportunityVersionIdx: uniqueIndex(
+      "quote_versions_opp_version_unique",
+    )
+      .on(t.opportunityId, t.versionNumber)
+      .where(sql`${t.deletedAt} IS NULL`),
+  }),
+);
+
+export const quoteLineItems = pgTable(
+  "quote_line_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteVersionId: uuid("quote_version_id")
+      .notNull()
+      .references(() => quoteVersions.id, { onDelete: "cascade" }),
+    // Optional — most lines map to a service, but the rep can add an
+    // "Other" line (e.g. installation, special equipment) that doesn't
+    // fit a service column. service_type=null = catch-all "Other".
+    serviceType: serviceTypeEnum("service_type"),
+    description: text("description").notNull(),
+    quantity: numeric("quantity", { precision: 10, scale: 2 })
+      .notNull()
+      .default("1"),
+    unitPrice: numeric("unit_price", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    frequency: quoteFrequencyEnum("frequency").notNull(),
+    // Display order on the PDF and in the editor. App-managed; small ints.
+    displayOrder: integer("display_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    quoteVersionIdx: index("quote_line_items_version_idx").on(t.quoteVersionId),
+  }),
+);
+
+// ============================================================================
 // SUPPORTING TABLES
 // ============================================================================
 
@@ -889,6 +1055,35 @@ export const emailEventsRelations = relations(emailEvents, ({ one }) => ({
   }),
 }));
 
+export const quoteVersionsRelations = relations(
+  quoteVersions,
+  ({ one, many }) => ({
+    opportunity: one(opportunities, {
+      fields: [quoteVersions.opportunityId],
+      references: [opportunities.id],
+    }),
+    sentEmailSend: one(emailSends, {
+      fields: [quoteVersions.sentEmailSendId],
+      references: [emailSends.id],
+    }),
+    createdBy: one(users, {
+      fields: [quoteVersions.createdByUserId],
+      references: [users.id],
+    }),
+    lineItems: many(quoteLineItems),
+  }),
+);
+
+export const quoteLineItemsRelations = relations(
+  quoteLineItems,
+  ({ one }) => ({
+    quoteVersion: one(quoteVersions, {
+      fields: [quoteLineItems.quoteVersionId],
+      references: [quoteVersions.id],
+    }),
+  }),
+);
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -909,6 +1104,10 @@ export type EmailSend = typeof emailSends.$inferSelect;
 export type NewEmailSend = typeof emailSends.$inferInsert;
 export type EmailEvent = typeof emailEvents.$inferSelect;
 export type NewEmailEvent = typeof emailEvents.$inferInsert;
+export type QuoteVersion = typeof quoteVersions.$inferSelect;
+export type NewQuoteVersion = typeof quoteVersions.$inferInsert;
+export type QuoteLineItem = typeof quoteLineItems.$inferSelect;
+export type NewQuoteLineItem = typeof quoteLineItems.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 

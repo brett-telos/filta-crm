@@ -29,7 +29,6 @@ function isPublicPath(pathname: string): boolean {
   if (
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/favicon") ||
-    pathname.startsWith("/brand/") ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml"
   ) {

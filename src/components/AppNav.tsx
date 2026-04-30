@@ -42,6 +42,7 @@ export default async function AppNav() {
     { href: "/leads", label: "Leads" },
     { href: "/pipeline", label: "Pipeline" },
     { href: "/cross-sell", label: "Cross-Sell" },
+    { href: "/at-risk", label: "At Risk" },
   ];
 
   return (
