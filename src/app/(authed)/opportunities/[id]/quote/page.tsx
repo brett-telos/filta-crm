@@ -19,6 +19,7 @@ import {
   opportunities,
   quoteLineItems,
   quoteVersions,
+  serviceAgreements,
   servicePricingConfig,
   users,
 } from "@/db";
@@ -105,6 +106,34 @@ export default async function QuoteBuilderPage({
     )
     .orderBy(desc(quoteVersions.versionNumber));
 
+  // Latest service agreement on this opp (joined to the accepted quote
+  // version above). Surfaces a "Service agreement" panel in the right rail
+  // when one exists so the rep can grab the PDF without leaving the
+  // builder.
+  const [latestAgreement] = await db
+    .select({
+      id: serviceAgreements.id,
+      status: serviceAgreements.status,
+      termStartDate: serviceAgreements.termStartDate,
+      termEndDate: serviceAgreements.termEndDate,
+      sentAt: serviceAgreements.sentAt,
+      customerSignedAt: serviceAgreements.customerSignedAt,
+      customerSignedName: serviceAgreements.customerSignedName,
+    })
+    .from(serviceAgreements)
+    .innerJoin(
+      quoteVersions,
+      eq(quoteVersions.id, serviceAgreements.quoteVersionId),
+    )
+    .where(
+      and(
+        eq(quoteVersions.opportunityId, opp.id),
+        isNull(serviceAgreements.deletedAt),
+      ),
+    )
+    .orderBy(desc(serviceAgreements.createdAt))
+    .limit(1);
+
   // Pick the version we're editing: the latest draft, or seed defaults.
   const editableVersion = allVersions.find((v) => v.status === "draft") ?? null;
 
@@ -176,10 +205,10 @@ export default async function QuoteBuilderPage({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
-            href={`/accounts/${opp.accountId}`}
+            href={`/opportunities/${opp.id}`}
             className="text-xs text-slate-500 hover:text-slate-700"
           >
-            ← Back to {opp.companyName}
+            ← Back to {opp.companyName} opportunity
           </Link>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
             Build quote
@@ -220,6 +249,43 @@ export default async function QuoteBuilderPage({
         </div>
 
         <aside className="space-y-3">
+          {latestAgreement ? (
+            <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-emerald-800">
+                Active service agreement
+              </h2>
+              <div className="mt-2 text-sm text-slate-900">
+                SA-{latestAgreement.id.slice(0, 6)}
+                <span className="ml-2 rounded bg-white/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                  {latestAgreement.status}
+                </span>
+              </div>
+              {latestAgreement.termStartDate && latestAgreement.termEndDate ? (
+                <div className="mt-1 text-xs text-emerald-900/70">
+                  Term {latestAgreement.termStartDate} → {latestAgreement.termEndDate}
+                </div>
+              ) : null}
+              {latestAgreement.customerSignedAt ? (
+                <div className="mt-1 text-xs text-emerald-900/70">
+                  Signed by {latestAgreement.customerSignedName ?? "customer"} on{" "}
+                  {new Date(latestAgreement.customerSignedAt as Date).toLocaleDateString()}
+                </div>
+              ) : latestAgreement.sentAt ? (
+                <div className="mt-1 text-xs text-emerald-900/70">
+                  Sent {new Date(latestAgreement.sentAt as Date).toLocaleDateString()} — awaiting signature
+                </div>
+              ) : null}
+              <a
+                href={`/api/agreements/${latestAgreement.id}/pdf`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+              >
+                Download agreement PDF →
+              </a>
+            </section>
+          ) : null}
+
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
               Versions ({allVersions.length})
