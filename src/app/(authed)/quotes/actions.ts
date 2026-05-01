@@ -49,6 +49,11 @@ import { renderQuotePdf } from "@/lib/pdf/QuoteDocument";
 import { quotePdfDataFromRow } from "@/lib/pdf/quote-data";
 import { renderServiceAgreementPdf } from "@/lib/pdf/ServiceAgreementDocument";
 import { agreementPdfDataFromRow } from "@/lib/pdf/agreement-data";
+import {
+  generatePublicToken,
+  publicAgreementUrl,
+  publicQuoteUrl,
+} from "@/lib/public-tokens";
 import { createAutoFollowUpTask } from "../tasks/actions";
 
 // ============================================================================
@@ -449,6 +454,18 @@ export async function sendQuoteAction(
       [row.senderFirstName, row.senderLastName].filter(Boolean).join(" ") ||
       sender.fromName;
 
+    // Generate a fresh public-link token for this send. The raw token only
+    // appears in the customer's email body; only the hash + expiry are
+    // persisted to the row. Re-sending the quote rotates the token.
+    const publicLink = generatePublicToken();
+    await tx
+      .update(quoteVersions)
+      .set({
+        publicTokenHash: publicLink.hash,
+        publicTokenExpiresAt: publicLink.expiresAt,
+      })
+      .where(eq(quoteVersions.id, row.id));
+
     const vars = {
       firstName: row.customerContactName?.split(" ")[0] || "there",
       companyName: row.customerCompanyName,
@@ -457,6 +474,7 @@ export async function sendQuoteAction(
       territoryLabel: sender.territoryLabel,
       quoteRef: `Q-${row.opportunityId.slice(0, 6)}-v${row.versionNumber}`,
       annualValue: formatCurrency(Number(row.estimatedAnnual)),
+      customerLink: publicQuoteUrl(publicLink.token),
     };
 
     // Fall back to a hardcoded subject/body if the template seed hasn't
@@ -821,6 +839,18 @@ export async function acceptQuoteAction(
       [row.senderFirstName, row.senderLastName].filter(Boolean).join(" ") ||
       sender.fromName;
 
+    // Generate the public sign-link token for the agreement. Embedded as
+    // {{customerLink}} in the welcome email so the customer can sign with
+    // one click rather than print / sign / scan.
+    const publicLink = generatePublicToken();
+    await tx
+      .update(serviceAgreements)
+      .set({
+        publicTokenHash: publicLink.hash,
+        publicTokenExpiresAt: publicLink.expiresAt,
+      })
+      .where(eq(serviceAgreements.id, agreementRow.id));
+
     const vars = {
       firstName: row.customerContactName?.split(" ")[0] || "there",
       companyName: row.customerCompanyName,
@@ -828,6 +858,7 @@ export async function acceptQuoteAction(
       senderFullName,
       territoryLabel: sender.territoryLabel,
       agreementRef: `SA-${agreementRow.id.slice(0, 6)}`,
+      customerLink: publicAgreementUrl(publicLink.token),
     };
 
     const subjectTemplate =
