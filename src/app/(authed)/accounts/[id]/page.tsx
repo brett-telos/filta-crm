@@ -5,7 +5,7 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
   db,
   accounts,
@@ -14,6 +14,7 @@ import {
   activities,
   users,
   emailSends,
+  messageTemplates,
   serviceAgreements,
 } from "@/db";
 import { requireSession, canAccessTerritory } from "@/lib/session";
@@ -30,6 +31,7 @@ import {
 } from "@/lib/format";
 import LogActivityForm from "./LogActivityForm";
 import SalesFunnelWidget from "./SalesFunnelWidget";
+import EmailButton from "./EmailButton";
 import EditableInfoCard from "./EditableInfoCard";
 import EditableServicesCard from "./EditableServicesCard";
 import EditableContactsCard from "./EditableContactsCard";
@@ -64,7 +66,7 @@ export default async function AccountDetailPage({
     notFound();
   }
 
-  const [contactRows, oppRows, activityRows, openTasks, emailRows, agreementRows] =
+  const [contactRows, oppRows, activityRows, openTasks, emailRows, agreementRows, composeTemplates] =
     await Promise.all([
       db
         .select()
@@ -150,6 +152,25 @@ export default async function AccountDetailPage({
         )
         .orderBy(desc(serviceAgreements.createdAt))
         .limit(5),
+      // Active templates for the ad-hoc email composer modal. Pull only
+      // 'general_followup' and 'other' purposes — campaign-specific
+      // templates (fs_cross_sell_v1, proposal_sent_v1, service_agreement_v1)
+      // belong to their own surfaces; using them out of context produces
+      // mismatched activity entries.
+      db
+        .select({
+          id: messageTemplates.id,
+          name: messageTemplates.name,
+          subjectTemplate: messageTemplates.subjectTemplate,
+          bodyTextTemplate: messageTemplates.bodyTextTemplate,
+        })
+        .from(messageTemplates)
+        .where(
+          and(
+            eq(messageTemplates.active, true),
+            sql`${messageTemplates.purpose} IN ('general_followup','other')`,
+          ),
+        ),
     ]);
 
   const sp = (acct.serviceProfile as Record<string, any>) ?? {};
@@ -185,15 +206,32 @@ export default async function AccountDetailPage({
           </div>
         </div>
 
-        {acct.phone ? (
-          <a
-            href={`tel:${acct.phone}`}
-            className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-md bg-filta-blue px-4 py-2.5 text-sm font-semibold text-white hover:bg-filta-blue-dark sm:w-auto"
-          >
-            <span aria-hidden>📞</span>
-            <span>Call {formatPhone(acct.phone)}</span>
-          </a>
-        ) : null}
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          {acct.phone ? (
+            <a
+              href={`tel:${acct.phone}`}
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-md bg-filta-blue px-4 py-2.5 text-sm font-semibold text-white hover:bg-filta-blue-dark sm:flex-none"
+            >
+              <span aria-hidden>📞</span>
+              <span>Call {formatPhone(acct.phone)}</span>
+            </a>
+          ) : null}
+          <EmailButton
+            accountId={acct.id}
+            companyName={acct.companyName}
+            contacts={contactRows
+              .filter((c) => !!c.email)
+              .map((c) => ({
+                id: c.id,
+                firstName: c.firstName,
+                lastName: c.lastName,
+                fullName: c.fullName,
+                email: c.email!,
+                isPrimary: !!c.isPrimary,
+              }))}
+            templates={composeTemplates}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
