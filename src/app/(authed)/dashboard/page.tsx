@@ -23,6 +23,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { requireSession } from "@/lib/session";
 import { getTaskCountsForUser } from "../tasks/actions";
+import SendDigestButton from "./SendDigestButton";
 
 export const dynamic = "force-dynamic";
 
@@ -274,24 +275,27 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <section>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Welcome back, {session.email.split("@")[0]}.
-        </h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {new Date().toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })}
-          {" · "}
-          {session.territory === "both"
-            ? "All territories"
-            : session.territory === "fun_coast"
-              ? "Fun Coast"
-              : "Space Coast"}
-        </p>
+      <section className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+            Welcome back, {session.email.split("@")[0]}.
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">
+            {new Date().toLocaleDateString(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
+            {" · "}
+            {session.territory === "both"
+              ? "All territories"
+              : session.territory === "fun_coast"
+                ? "Fun Coast"
+                : "Space Coast"}
+          </p>
+        </div>
+        {session.role === "admin" ? <SendDigestButton /> : null}
       </section>
 
       {/* KPI strip ------------------------------------------------------- */}

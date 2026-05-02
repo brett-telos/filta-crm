@@ -79,7 +79,10 @@ const PROPOSAL_SENT_V1_TEXT = `Hi {{firstName}},
 
 Attached is the Filta proposal for {{companyName}}. Headline: {{annualValue}} estimated annual value across the services we discussed.
 
-Take a look when you have a moment. Reply or call if you want to talk through any of it — once you're ready to move forward we'll send the full Service Agreement for signature and schedule the first visit within a week.
+Or view + accept it online here:
+{{customerLink}}
+
+(Same content as the PDF, with one-click accept when you're ready. Reply or call if you'd rather talk it through first — once accepted we'll send the full Service Agreement and schedule the first visit within a week.)
 
 Thanks,
 {{senderFirstName}}
@@ -89,7 +92,13 @@ const PROPOSAL_SENT_V1_HTML = `<p>Hi {{firstName}},</p>
 
 <p>Attached is the Filta proposal for <strong>{{companyName}}</strong>. Headline: <strong>{{annualValue}}</strong> estimated annual value across the services we discussed.</p>
 
-<p>Take a look when you have a moment. Reply or call if you want to talk through any of it — once you're ready to move forward we'll send the full Service Agreement for signature and schedule the first visit within a week.</p>
+<p style="text-align:center;margin:24px 0;">
+  <a href="{{customerLink}}" style="display:inline-block;background-color:#0066CC;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:4px;font-weight:bold;font-size:14px;">
+    View &amp; accept online &rarr;
+  </a>
+</p>
+
+<p style="font-size:13px;color:#475569;">Same content as the attached PDF, with one-click accept when you're ready. Reply or call if you'd rather talk it through first &mdash; once accepted we'll send the full Service Agreement and schedule the first visit within a week.</p>
 
 <p style="margin-top:20px;">Thanks,<br>
 <strong>{{senderFirstName}}</strong><br>
@@ -105,9 +114,13 @@ const PROPOSAL_SENT_V1_HTML = `<p>Hi {{firstName}},</p>
 
 const SERVICE_AGREEMENT_V1_TEXT = `Hi {{firstName}},
 
-Thanks for choosing Filta. Attached is the Service Agreement for {{companyName}}. Sign at your convenience and send it back — once we have it on file, we'll lock in a first-visit date.
+Thanks for choosing Filta. Attached is the Service Agreement for {{companyName}} — and you can also sign it digitally here:
 
-I'll be in touch in the next day or two to get scheduling sorted. If you have questions before then, just reply or give me a call.
+{{customerLink}}
+
+(Type your name + click sign. Takes 30 seconds. If you'd prefer to print and return the PDF instead, that works too — just send it back when you have a moment.)
+
+I'll be in touch in the next day or two to lock in a first-visit date. Questions? Just reply or give me a call.
 
 Welcome aboard,
 {{senderFirstName}}
@@ -115,9 +128,17 @@ Filta {{territoryLabel}}`;
 
 const SERVICE_AGREEMENT_V1_HTML = `<p>Hi {{firstName}},</p>
 
-<p>Thanks for choosing Filta. Attached is the Service Agreement for <strong>{{companyName}}</strong>. Sign at your convenience and send it back &mdash; once we have it on file, we'll lock in a first-visit date.</p>
+<p>Thanks for choosing Filta. Attached is the Service Agreement for <strong>{{companyName}}</strong>. You can also sign it digitally with one click:</p>
 
-<p>I'll be in touch in the next day or two to get scheduling sorted. If you have questions before then, just reply or give me a call.</p>
+<p style="text-align:center;margin:24px 0;">
+  <a href="{{customerLink}}" style="display:inline-block;background-color:#16A99B;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:4px;font-weight:bold;font-size:14px;">
+    Sign Service Agreement online &rarr;
+  </a>
+</p>
+
+<p style="font-size:13px;color:#475569;">Takes about 30 seconds &mdash; type your name and click sign. If you'd prefer to print the PDF and send it back instead, that works too. Either way, once we have it on file we'll lock in a first-visit date.</p>
+
+<p>I'll be in touch in the next day or two to get scheduling sorted. Questions? Just reply or give me a call.</p>
 
 <p style="margin-top:20px;">Welcome aboard,<br>
 <strong>{{senderFirstName}}</strong><br>

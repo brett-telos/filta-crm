@@ -816,6 +816,15 @@ export const quoteVersions = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     declinedAt: timestamp("declined_at", { withTimezone: true }),
+    // Public-link token (Week 7.0). When a quote is sent we generate a
+    // random URL-safe token; only its sha256 hash lives here. The raw
+    // token only ever appears in the customer's email body. Expires after
+    // publicTokenExpiresAt so stale links can't accept stale quotes.
+    publicTokenHash: text("public_token_hash"),
+    publicTokenExpiresAt: timestamp("public_token_expires_at", {
+      withTimezone: true,
+    }),
+    customerViewedAt: timestamp("customer_viewed_at", { withTimezone: true }),
     createdByUserId: uuid("created_by_user_id")
       .notNull()
       .references(() => users.id),
@@ -839,6 +848,10 @@ export const quoteVersions = pgTable(
     )
       .on(t.opportunityId, t.versionNumber)
       .where(sql`${t.deletedAt} IS NULL`),
+    // Lookup by public token hash for /q/[token] viewer.
+    publicTokenHashIdx: uniqueIndex("quote_versions_public_token_hash_unique")
+      .on(t.publicTokenHash)
+      .where(sql`${t.publicTokenHash} IS NOT NULL`),
   }),
 );
 
@@ -921,6 +934,16 @@ export const serviceAgreements = pgTable(
     ),
     terminatedAt: timestamp("terminated_at", { withTimezone: true }),
     terminationReason: text("termination_reason"),
+    // Public-link token (Week 7.0). Same shape as quote_versions — sha256
+    // hash only, raw token lives only in the customer's email. Used by
+    // /a/[token] for the public sign flow.
+    publicTokenHash: text("public_token_hash"),
+    publicTokenExpiresAt: timestamp("public_token_expires_at", {
+      withTimezone: true,
+    }),
+    customerViewedAt: timestamp("customer_viewed_at", { withTimezone: true }),
+    customerSignedFromIp: text("customer_signed_from_ip"),
+    customerSignedFromUserAgent: text("customer_signed_from_user_agent"),
     createdByUserId: uuid("created_by_user_id")
       .notNull()
       .references(() => users.id),
@@ -944,6 +967,12 @@ export const serviceAgreements = pgTable(
     quoteVersionUnique: uniqueIndex("service_agreements_quote_version_unique")
       .on(t.quoteVersionId)
       .where(sql`${t.deletedAt} IS NULL`),
+    // Lookup by public token hash for /a/[token] signer.
+    publicTokenHashIdx: uniqueIndex(
+      "service_agreements_public_token_hash_unique",
+    )
+      .on(t.publicTokenHash)
+      .where(sql`${t.publicTokenHash} IS NOT NULL`),
   }),
 );
 
