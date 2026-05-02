@@ -49,7 +49,10 @@ export default async function AppNav() {
     { href: "/cross-sell", label: "Cross-Sell" },
     { href: "/at-risk", label: "At Risk" },
     ...(isAdmin
-      ? [{ href: "/admin/billing-import", label: "Billing" }]
+      ? [
+          { href: "/admin/users", label: "Users" },
+          { href: "/admin/billing-import", label: "Billing" },
+        ]
       : []),
   ];
 

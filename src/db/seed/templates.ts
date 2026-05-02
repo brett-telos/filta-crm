@@ -144,6 +144,39 @@ const SERVICE_AGREEMENT_V1_HTML = `<p>Hi {{firstName}},</p>
 <strong>{{senderFirstName}}</strong><br>
 <span style="color:#475569;">Filta {{territoryLabel}}</span></p>`;
 
+
+// ---------- USER INVITE v1 ----------
+//
+// Internal invite — goes out from the admin /admin/users page when a new
+// team member is added. Tone: short, welcoming, action-oriented. The
+// {{customerLink}} placeholder name is reused from the customer-portal
+// templates because the renderer is shared; here it points at
+// /reset-password/[token] which doubles as the set-password flow.
+
+const USER_INVITE_V1_TEXT = `Hi {{firstName}},
+
+{{senderFirstName}} just added you to {{territoryLabel}}. Click below to set your password and log in:
+
+{{customerLink}}
+
+The link is valid for {{expiresInDays}} days. If you didn't expect this email, just ignore it.
+
+— Filta CRM`;
+
+const USER_INVITE_V1_HTML = `<p>Hi {{firstName}},</p>
+
+<p><strong>{{senderFirstName}}</strong> just added you to {{territoryLabel}}.</p>
+
+<p style="text-align:center;margin:24px 0;">
+  <a href="{{customerLink}}" style="display:inline-block;background-color:#0066CC;color:#FFFFFF;text-decoration:none;padding:12px 24px;border-radius:4px;font-weight:bold;font-size:14px;">
+    Set your password &rarr;
+  </a>
+</p>
+
+<p style="font-size:13px;color:#475569;">The link is valid for {{expiresInDays}} days. If you didn't expect this email, just ignore it.</p>
+
+<p style="margin-top:20px;color:#475569;">&mdash; Filta CRM</p>`;
+
 export const TEMPLATE_SEEDS: TemplateSeed[] = [
   {
     key: "fs_cross_sell_v1",
@@ -170,6 +203,14 @@ export const TEMPLATE_SEEDS: TemplateSeed[] = [
       "Welcome to Filta — your service agreement is attached",
     bodyHtmlTemplate: SERVICE_AGREEMENT_V1_HTML,
     bodyTextTemplate: SERVICE_AGREEMENT_V1_TEXT,
+  },
+  {
+    key: "user_invite_v1",
+    purpose: "other",
+    name: "User Invite — v1 (set password)",
+    subjectTemplate: "Set your password to access the Filta CRM",
+    bodyHtmlTemplate: USER_INVITE_V1_HTML,
+    bodyTextTemplate: USER_INVITE_V1_TEXT,
   },
 ];
 
