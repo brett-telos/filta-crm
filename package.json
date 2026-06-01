@@ -14,8 +14,9 @@
     "db:studio": "drizzle-kit studio",
     "import:leads": "tsx scripts/import_leads.ts",
     "import:billing": "tsx scripts/import_billing.ts",
+    "import:billing:qbo": "tsx scripts/import_billing_qbo.ts",
     "backfill:crosssell": "tsx scripts/backfill_crosssell_opportunities.ts",
-    "setup": "npm run db:migrate && npm run db:seed && npm run import:leads && npm run import:billing && npm run db:rls"
+    "setup": "npm run db:migrate && npm run db:seed && npm run import:leads && npm run import:billing && npm run import:billing:qbo && npm run db:rls"
   },
   "dependencies": {
     "next": "^14.2.5",
