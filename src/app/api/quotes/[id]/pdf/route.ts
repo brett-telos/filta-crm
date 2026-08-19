@@ -105,7 +105,7 @@ export async function GET(
     .replace(/^-|-$/g, "");
   const filename = `Filta-Quote-${safeName}-v${row.versionNumber}.pdf`;
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
