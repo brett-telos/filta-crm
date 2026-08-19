@@ -46,3 +46,6 @@ coverage/
 
 # Replit upload scratch dir
 attached_assets/
+
+# dedupe run artifacts (contain lead PII; never commit)
+dedupe_*.csv

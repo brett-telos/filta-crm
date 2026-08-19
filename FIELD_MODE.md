@@ -66,3 +66,26 @@ scoreboard.
 - No auth changes — Ron/Will/Sam get invited through /admin/users as usual.
 - `qualified` stays writable from the desktop kanban; Field Mode just never
   writes it.
+
+## Duplicate cleanup (`npm run dedupe`)
+
+The Feb 2026 Symphony import re-landed businesses that already existed from
+the 2013-2024 vintage data. Before the team starts dictating notes, merge the
+provable twins so nobody updates the wrong record:
+
+```
+npm run dedupe -- --analyze     # dry run: writes dedupe_auto_plan.csv + dedupe_review.csv
+npm run dedupe -- --apply       # merge the AUTO tier (phone-verified twins, same name+address)
+npm run dedupe -- --apply --approved dedupe_review.csv   # after marking Action=merge/swap
+```
+
+- AUTO tier: same normalized phone + (similar name or same contact), or same
+  name + same street address. Two live customers never auto-merge.
+- REVIEW tier: same contact w/ different phones, same phone w/ different
+  names, and chain-name patterns (same name, different phone AND address —
+  usually two real locations, leave Action blank to keep both).
+- Merges are transactional: activities/contacts/opps/tasks/emails/agreements
+  move to the survivor, survivor gaps are filled from the loser, the loser is
+  soft-deleted with a traceability note (incl. its Symphony ID). Nothing is
+  hard-deleted; reruns are no-ops. `--limit N` for a test batch.
+- The run CSVs are gitignored (lead PII — don't commit them).

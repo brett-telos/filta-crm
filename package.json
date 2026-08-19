@@ -12,6 +12,7 @@
     "db:seed": "tsx src/db/seed/run.ts",
     "db:rls": "tsx src/db/apply-rls.ts",
     "db:studio": "drizzle-kit studio",
+    "dedupe": "tsx scripts/dedupe_leads.ts",
     "import:leads": "tsx scripts/import_leads.ts",
     "import:billing": "tsx scripts/import_billing.ts",
     "import:billing:qbo": "tsx scripts/import_billing_qbo.ts",
