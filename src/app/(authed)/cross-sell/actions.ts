@@ -175,7 +175,9 @@ const FOLLOW_UP_DAYS = 5;
  * a sweeper).
  */
 export async function sendFsCrossSellEmailAction(
-  input: z.infer<typeof SendEmailInput>,
+  // z.input (not z.infer): templateKey has a zod .default(), so callers may
+  // legitimately omit it — z.infer would make it required at the type level.
+  input: z.input<typeof SendEmailInput>,
 ): Promise<SendFsCrossSellResult> {
   const session = await requireSession();
   const parsed = SendEmailInput.safeParse(input);
