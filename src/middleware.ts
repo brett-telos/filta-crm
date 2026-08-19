@@ -29,6 +29,10 @@ function isPublicPath(pathname: string): boolean {
   if (
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/favicon") ||
+    // Brand assets render on the (unauthenticated) login page and in the PWA
+    // manifest/splash, so they must be public — they're just logos.
+    pathname.startsWith("/brand/") ||
+    pathname === "/manifest.webmanifest" ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml"
   ) {

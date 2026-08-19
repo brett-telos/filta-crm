@@ -37,6 +37,7 @@ export default async function AppNav() {
 
   const NAV = [
     { href: "/dashboard", label: "Home" },
+    { href: "/field", label: "Field" },
     {
       href: "/today",
       label: "Today",

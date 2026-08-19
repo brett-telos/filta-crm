@@ -30,3 +30,30 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* ---- Field Mode ---------------------------------------------------------- */
+
+/* Won-deal celebration (see FieldApp.tsx <Confetti/>). */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-5vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(105vh) rotate(720deg);
+    opacity: 0.7;
+  }
+}
+.animate-confetti-fall {
+  animation-name: confetti-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+/* Hide the horizontal scrollbar on the stage-chip strip. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

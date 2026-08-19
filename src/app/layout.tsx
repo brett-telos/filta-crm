@@ -24,7 +24,14 @@ export const metadata: Metadata = {
   icons: {
     icon: "/brand/filta-glyph.svg",
     shortcut: "/brand/filta-glyph.svg",
-    apple: "/brand/filta-glyph.svg",
+    // iOS home-screen icon: white swoosh on Filta Blue (PNG — iOS ignores SVG).
+    apple: "/brand/icon-192.png",
+  },
+  // Installed-app behavior when saved to an iPhone home screen.
+  appleWebApp: {
+    capable: true,
+    title: "Filta",
+    statusBarStyle: "default",
   },
 };
 

@@ -34,7 +34,10 @@ export async function loginAction(
   const parsed = LoginInput.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
-    from: formData.get("from"),
+    // ?? undefined: the hidden `from` input only renders when the middleware
+    // appended ?from=…, so on a direct /login visit formData.get returns
+    // null — which z.string().optional() rejects (optional ≠ nullable).
+    from: formData.get("from") ?? undefined,
   });
 
   if (!parsed.success) {
