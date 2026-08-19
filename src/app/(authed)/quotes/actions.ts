@@ -225,7 +225,16 @@ export async function saveQuoteAction(
       customerContactEmail: contact?.email ?? null,
     };
 
-    const totals = totalsFor(lines);
+    // Drizzle numeric() columns take strings, not numbers — convert once here
+    // so both the update and insert paths below type-check and round-trip
+    // exactly (toFixed(2) matches the columns' scale).
+    const t = totalsFor(lines);
+    const totals = {
+      subtotalMonthly: t.subtotalMonthly.toFixed(2),
+      subtotalQuarterly: t.subtotalQuarterly.toFixed(2),
+      subtotalOneTime: t.subtotalOneTime.toFixed(2),
+      estimatedAnnual: t.estimatedAnnual.toFixed(2),
+    };
     const validUntil = validUntilIso ?? null;
 
     // Resolve target version: explicit id, else latest draft, else create v1.
