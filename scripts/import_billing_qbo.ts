@@ -44,6 +44,27 @@ import type { ServiceProfile } from "../src/db/schema";
 const DEFAULT_CSV = path.join(process.cwd(), "data", "qbo_billing_2026.csv");
 const CSV_PATH = process.env.QBO_BILLING_CSV ?? DEFAULT_CSV;
 
+// ----------------------------------------------------------------------------
+// Explicit QBO-name -> CRM-account-name overrides (checked before any
+// matching). Added Aug 2026 after the loose-match review: these QBO display
+// names normalize differently from their canonical accounts, so strict mode
+// alone can't route them. SKIP entries are QBO artifacts to ignore entirely.
+// ----------------------------------------------------------------------------
+const QBO_NAME_OVERRIDES: Record<string, string> = {
+  "Jimmy Hula's -Ormond Beach": "Jimmy Hula's - Ormond Beach",
+  "Jimmy Hulas-Port Orange": "Jimmy Hula's - Port Orange",
+  "Halifax Health Deltona": "Halifax Health - Deltona",
+  "Halifax Health-France Tower": "Halifax Health - France Tower",
+  "Halifax Health-Main Kitchen": "Halifax Health - Main Kitchen",
+  "Canteen-Embraer Aircraft - 61902": "Canteen-Embraer",
+  "Lenox at Merritt Island (Pacifica Residential Living)": "The Lenox at Merritt Island",
+  "Zon Beachside ALF": "Zon Beachside",
+  "Nice N Easy Oyster Bar and Grille": "Nice & Easy Oyster Bar & Grill",
+};
+
+/** QBO records that must never import (deleted/artifact rows). */
+const QBO_SKIP = new Set(["Cast & Crew (deleted)"]);
+
 const LOOSE =
   (process.env.LOOSE_MATCH ?? "").toLowerCase() === "1" ||
   (process.env.LOOSE_MATCH ?? "").toLowerCase() === "true";
@@ -277,8 +298,10 @@ async function main() {
   const looseMatches: { from: string; to: string; how: string }[] = [];
 
   for (const r of qboRows) {
-    const key = normalizeCompany(r.displayName);
-    const keyLoose = normalizeCompanyLoose(r.displayName);
+    if (QBO_SKIP.has(r.displayName)) continue;
+    const matchName = QBO_NAME_OVERRIDES[r.displayName] ?? r.displayName;
+    const key = normalizeCompany(matchName);
+    const keyLoose = normalizeCompanyLoose(matchName);
     const m = matchAccount(key, keyLoose, accountsByName, accountsByLoose, allAccounts);
     if (!m) {
       unmatched.push(r.displayName);
