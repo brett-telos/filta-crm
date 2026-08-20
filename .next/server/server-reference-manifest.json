@@ -1,0 +1,14 @@
+{
+  "node": {
+    "8c1677b332306db3c18bc15edd2e56219d2aafa6": {
+      "workers": {
+        "app/login/page": "(action-browser)/./node_modules/next/dist/build/webpack/loaders/next-flight-action-entry-loader.js?actions=%5B%5B%22%2Fhome%2Frunner%2Fworkspace%2Fsrc%2Fapp%2Flogin%2Factions.ts%22%2C%5B%22loginAction%22%5D%5D%5D&__client_imported__=true!"
+      },
+      "layer": {
+        "app/login/page": "action-browser"
+      }
+    }
+  },
+  "edge": {},
+  "encryptionKey": "4aD6kRlE/jwrKmWbIC12usrNrFzvMXue8fdyxRWHCtw="
+}

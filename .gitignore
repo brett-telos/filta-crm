@@ -1,51 +1,49 @@
-# Dependencies
-node_modules/
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# Next.js build output
-.next/
-out/
-build/
-dist/
+# compiled output
+dist
+tmp
+out-tsc
+*.tsbuildinfo
+.expo
+.expo-shared
 
-# Environment files
-.env
-.env.local
-.env.production
-.env.*.local
+# dependencies
+node_modules
 
-# Logs
-*.log
-npm-debug.log*
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
 
-# OS
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
 .DS_Store
 Thumbs.db
 
-# IDE
-.vscode/
-.idea/
-
-# Build / cache
-.turbo
-.cache
-.cache/
-.upm/
-.vercel
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
 
 # Replit
-.replit.local
-
-# Coverage
-coverage/
-
-# TypeScript incremental build cache
-*.tsbuildinfo
-
-# Zip artifacts (deliverable zips don't belong in source)
-*.zip
-
-# Replit upload scratch dir
-attached_assets/
-
-# dedupe run artifacts (contain lead PII; never commit)
-dedupe_*.csv
+.cache/
+.local/
