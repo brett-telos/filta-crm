@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   Loader2,
+  Mail,
   MapPin,
   MessageSquare,
   Mic,
@@ -31,6 +32,7 @@ import {
   quickUpdateAction,
   searchLeadsAction,
   setFieldStageAction,
+  setLeadContactAction,
   type FieldLeadCard,
   type FieldLeadRow,
   type FieldReport,
@@ -518,7 +520,7 @@ function LeadCardView({
         </p>
 
         {/* One-tap actions */}
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-4 gap-2">
           <ActionButton
             href={telHref ? `tel:${telHref.replace(/[^\d+]/g, "")}` : undefined}
             icon={<Phone className="h-4 w-4" />}
@@ -528,6 +530,15 @@ function LeadCardView({
             href={telHref ? `sms:${telHref.replace(/[^\d+]/g, "")}` : undefined}
             icon={<MessageSquare className="h-4 w-4" />}
             label="Text"
+          />
+          <ActionButton
+            href={
+              card.primaryContact?.email
+                ? `mailto:${card.primaryContact.email}`
+                : undefined
+            }
+            icon={<Mail className="h-4 w-4" />}
+            label="Email"
           />
           <ActionButton
             href={
@@ -628,14 +639,20 @@ function LeadCardView({
             </span>
           )}
         </div>
-        <dl className="mt-2 divide-y divide-slate-100 text-sm">
-          <CardField k="Contact" v={card.primaryContact?.fullName} />
+        <ContactQuickEdit
+          key={card.id}
+          accountId={card.id}
+          initialName={card.primaryContact?.fullName ?? ""}
+          initialEmail={card.primaryContact?.email ?? ""}
+          showToast={showToast}
+          onSaved={() => void load()}
+        />
+        <dl className="mt-1 divide-y divide-slate-100 text-sm">
           <CardField k="Title" v={card.primaryContact?.title} />
           <CardField
             k="Phone"
             v={formatPhone(card.phoneRaw ?? card.phone) || undefined}
           />
-          <CardField k="Email" v={card.primaryContact?.email} />
           <CardField k="Address" v={addr || undefined} />
           <CardField k="County" v={card.county} />
           <CardField k="Website" v={card.website} />
@@ -731,6 +748,88 @@ function CardField({ k, v }: { k: string; v?: string | null }) {
       <dd className={`min-w-0 break-words font-medium ${v ? "text-slate-900" : "text-slate-300"}`}>
         {v || "—"}
       </dd>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Contact quick-edit — email is the team's main outreach channel and the
+// Symphony import had it for almost nobody, so reps capture name + email
+// right on the card. Saves to the primary contact (creates one if missing).
+// ---------------------------------------------------------------------------
+
+function ContactQuickEdit({
+  accountId,
+  initialName,
+  initialEmail,
+  showToast,
+  onSaved,
+}: {
+  accountId: string;
+  initialName: string;
+  initialEmail: string;
+  showToast: (m: string) => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [email, setEmail] = useState(initialEmail);
+  const [saving, setSaving] = useState(false);
+  const dirty = name.trim() !== initialName || email.trim().toLowerCase() !== initialEmail.toLowerCase();
+
+  async function save() {
+    setSaving(true);
+    const res = await setLeadContactAction({
+      accountId,
+      fullName: name,
+      email,
+    });
+    setSaving(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Could not save contact");
+      return;
+    }
+    showToast("Contact saved");
+    onSaved();
+  }
+
+  const inputCls =
+    "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[16px] outline-none focus:border-filta-blue focus:ring-2 focus:ring-filta-blue/20";
+
+  return (
+    <div className="mt-2 space-y-1.5 text-sm">
+      <div className="flex items-center gap-3">
+        <span className="w-24 flex-shrink-0 text-filta-cool-gray">Contact</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="add contact name"
+          autoComplete="off"
+          className={inputCls}
+        />
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="w-24 flex-shrink-0 text-filta-cool-gray">Email</span>
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="add email"
+          type="email"
+          inputMode="email"
+          autoComplete="off"
+          autoCapitalize="none"
+          className={inputCls}
+        />
+      </div>
+      {dirty && (
+        <button
+          onClick={save}
+          disabled={saving}
+          className="ml-[6.75rem] flex items-center gap-1.5 rounded-lg bg-filta-blue px-3.5 py-2 text-xs font-bold text-white transition active:scale-95 disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Save contact
+        </button>
+      )}
     </div>
   );
 }

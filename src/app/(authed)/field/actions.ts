@@ -478,3 +478,92 @@ export async function getFieldReportAction(): Promise<{
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// CONTACT QUICK-EDIT — set the primary contact's name/email from the phone
+// ---------------------------------------------------------------------------
+//
+// Email is the team's main outreach channel but the Symphony lead export had
+// it for almost nobody (2 of 363 enriched leads), so reps capture it in the
+// field. Writes to the contacts table (the data model's home for email):
+// updates the primary contact if one exists, else creates one.
+
+const ContactEditInput = z.object({
+  accountId: z.string().uuid(),
+  fullName: z.string().max(120).transform((v) => v.trim()),
+  email: z
+    .string()
+    .max(256)
+    .transform((v) => v.trim().toLowerCase())
+    .refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
+      message: "That email doesn't look right.",
+    }),
+});
+
+export async function setLeadContactAction(input: {
+  accountId: string;
+  fullName: string;
+  email: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireSession();
+  const parsed = ContactEditInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors[0]?.message ?? "Invalid input" };
+  }
+  const { accountId, fullName, email } = parsed.data;
+  if (!fullName && !email) return { ok: false, error: "Nothing to save yet." };
+
+  return withSession(session, async (tx) => {
+    const [acct] = await tx
+      .select({ id: accounts.id, territory: accounts.territory })
+      .from(accounts)
+      .where(and(eq(accounts.id, accountId), isNull(accounts.deletedAt)))
+      .limit(1);
+    if (!acct) return { ok: false, error: "Lead not found" };
+    if (
+      session.territory !== "both" &&
+      acct.territory !== session.territory &&
+      acct.territory !== "unassigned"
+    ) {
+      return { ok: false, error: "You don't have access to that lead." };
+    }
+
+    const [existing] = await tx
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(and(eq(contacts.accountId, accountId), isNull(contacts.deletedAt)))
+      .orderBy(desc(contacts.isPrimary))
+      .limit(1);
+
+    const parts = fullName.split(/\s+/);
+    const firstName = parts[0] || null;
+    const lastName = parts.length > 1 ? parts.slice(1).join(" ") : null;
+
+    if (existing) {
+      await tx
+        .update(contacts)
+        .set({
+          ...(fullName ? { fullName, firstName, lastName } : {}),
+          ...(email ? { email } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(contacts.id, existing.id));
+    } else {
+      await tx.insert(contacts).values({
+        accountId,
+        fullName: fullName || null,
+        firstName,
+        lastName,
+        email: email || null,
+        isPrimary: true,
+      });
+    }
+
+    await tx
+      .update(accounts)
+      .set({ updatedAt: sql`now()` })
+      .where(eq(accounts.id, accountId));
+
+    return { ok: true };
+  });
+}
