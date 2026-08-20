@@ -10,8 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: field
+    description: Field Mode — phone-first sales operations
 paths:
-  /healthz:
+  /api/healthz:
     get:
       operationId: healthCheck
       tags: [health]
@@ -24,7 +28,285 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /api/mobile/auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Authenticate with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResult"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/mobile/field/leads:
+    get:
+      operationId: getFieldLeads
+      tags: [field]
+      summary: List or search field leads
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search query (min 2 chars). When omitted returns up to 400 worked prospect leads.
+      responses:
+        "200":
+          description: List of leads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FieldLeadListResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/mobile/field/leads/{id}:
+    get:
+      operationId: getFieldLead
+      tags: [field]
+      summary: Get lead card details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lead card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FieldLeadCard"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Lead not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/mobile/field/leads/{id}/updates:
+    post:
+      operationId: postFieldLeadUpdate
+      tags: [field]
+      summary: Post a quick field update (visit note)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FieldUpdateInput"
+      responses:
+        "200":
+          description: Update saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Lead not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/mobile/field/leads/{id}/contact:
+    put:
+      operationId: upsertFieldLeadContact
+      tags: [field]
+      summary: Upsert primary contact on a lead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FieldContactInput"
+      responses:
+        "200":
+          description: Contact saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Lead not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/mobile/field/leads/{id}/stage:
+    post:
+      operationId: setFieldLeadStage
+      tags: [field]
+      summary: Move a lead to a new funnel stage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FieldStageInput"
+      responses:
+        "200":
+          description: Stage updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Lead not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/mobile/field/report:
+    get:
+      operationId: getFieldReport
+      tags: [field]
+      summary: Get 7-day field activity report
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Field report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FieldReport"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/mobile/field/symphony-export:
+    get:
+      operationId: getFieldSymphonyExport
+      tags: [field]
+      summary: Export leads as Symphony CSV
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [scheduled, won]
+          description: "scheduled (default) = Service Scheduled leads; won = recently converted customers (last 30 days)"
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +316,318 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+
+    LoginInput:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          minLength: 1
+      required:
+        - email
+        - password
+
+    LoginResult:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/UserClaims"
+      required:
+        - token
+        - user
+
+    UserClaims:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        firstName:
+          type: string
+        role:
+          type: string
+        territory:
+          type: string
+      required:
+        - id
+        - email
+        - firstName
+        - role
+        - territory
+
+    FieldLeadRow:
+      type: object
+      properties:
+        id:
+          type: string
+        companyName:
+          type: string
+        city:
+          type: ["string", "null"]
+        territory:
+          type: string
+        stage:
+          type: string
+        stageChangedAt:
+          type: string
+        phone:
+          type: ["string", "null"]
+        phoneRaw:
+          type: ["string", "null"]
+        accountStatus:
+          type: string
+        fryerCount:
+          type: ["number", "null"]
+        lastActivityAt:
+          type: ["string", "null"]
+        lastActivityBody:
+          type: ["string", "null"]
+        ownerFirstName:
+          type: ["string", "null"]
+      required:
+        - id
+        - companyName
+        - territory
+        - stage
+        - stageChangedAt
+        - accountStatus
+
+    FieldLeadListResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldLeadRow"
+      required:
+        - rows
+
+    FieldActivityItem:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        subject:
+          type: ["string", "null"]
+        body:
+          type: ["string", "null"]
+        occurredAt:
+          type: string
+        ownerName:
+          type: ["string", "null"]
+      required:
+        - id
+        - type
+        - occurredAt
+
+    FieldPrimaryContact:
+      type: object
+      properties:
+        fullName:
+          type: ["string", "null"]
+        title:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        phoneMobile:
+          type: ["string", "null"]
+        phoneDirect:
+          type: ["string", "null"]
+
+    FieldLeadCard:
+      type: object
+      properties:
+        id:
+          type: string
+        companyName:
+          type: string
+        dbaName:
+          type: ["string", "null"]
+        addressLine1:
+          type: ["string", "null"]
+        city:
+          type: ["string", "null"]
+        state:
+          type: ["string", "null"]
+        zip:
+          type: ["string", "null"]
+        county:
+          type: ["string", "null"]
+        territory:
+          type: string
+        phone:
+          type: ["string", "null"]
+        phoneRaw:
+          type: ["string", "null"]
+        website:
+          type: ["string", "null"]
+        fryerCount:
+          type: ["number", "null"]
+        stage:
+          type: string
+        stageChangedAt:
+          type: string
+        accountStatus:
+          type: string
+        ncaFlag:
+          type: boolean
+        ncaName:
+          type: ["string", "null"]
+        leadSource:
+          type: string
+        filtaRecordId:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        primaryContact:
+          oneOf:
+            - $ref: "#/components/schemas/FieldPrimaryContact"
+            - type: "null"
+        feed:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldActivityItem"
+      required:
+        - id
+        - companyName
+        - territory
+        - stage
+        - stageChangedAt
+        - accountStatus
+        - ncaFlag
+        - leadSource
+        - feed
+
+    FieldUpdateInput:
+      type: object
+      properties:
+        body:
+          type: string
+          minLength: 2
+          maxLength: 4000
+      required:
+        - body
+
+    FieldContactInput:
+      type: object
+      properties:
+        fullName:
+          type: string
+        email:
+          type: ["string", "null"]
+      required:
+        - fullName
+
+    FieldStageInput:
+      type: object
+      properties:
+        stage:
+          type: string
+          enum:
+            - new_lead
+            - contacted
+            - proposal
+            - negotiation
+            - closed_won
+            - closed_lost
+      required:
+        - stage
+
+    FieldRepStat:
+      type: object
+      properties:
+        name:
+          type: string
+        contacted:
+          type: number
+        quoted:
+          type: number
+        scheduled:
+          type: number
+        won:
+          type: number
+        updates:
+          type: number
+      required:
+        - name
+        - contacted
+        - quoted
+        - scheduled
+        - won
+        - updates
+
+    FieldChangelogEntry:
+      type: object
+      properties:
+        occurredAt:
+          type: string
+        ownerName:
+          type: string
+        companyName:
+          type: string
+        body:
+          type: string
+      required:
+        - occurredAt
+        - ownerName
+        - companyName
+        - body
+
+    FieldPipelineItem:
+      type: object
+      properties:
+        stage:
+          type: string
+        count:
+          type: number
+      required:
+        - stage
+        - count
+
+    FieldReport:
+      type: object
+      properties:
+        weekStartIso:
+          type: string
+        weekEndIso:
+          type: string
+        reps:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldRepStat"
+        changelog:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldChangelogEntry"
+        pipeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldPipelineItem"
+      required:
+        - weekStartIso
+        - weekEndIso
+        - reps
+        - changelog
+        - pipeline
