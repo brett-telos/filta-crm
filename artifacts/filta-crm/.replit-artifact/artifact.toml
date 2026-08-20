@@ -1,0 +1,34 @@
+kind = "web"
+previewPath = "/"
+title = "Filta CRM"
+description = "Filta CRM is the sales and service relationship workspace for the Filta team, helping representatives manage accounts, contacts, opportunities, follow-ups, quotes, service agreements, and field activity."
+version = "1.0.0"
+id = "artifacts/filta-crm"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26105
+
+[services.development]
+run = "pnpm --filter @workspace/filta-crm run dev"
+
+[services.production]
+
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/filta-crm", "run", "build"]
+
+[services.production.build.env]
+NODE_ENV = "production"
+
+[services.production.run]
+args = ["pnpm", "--filter", "@workspace/filta-crm", "run", "start"]
+
+[services.production.run.env]
+NODE_ENV = "production"
+PORT = "26105"
+
+[services.env]
+PORT = "26105"
+BASE_PATH = "/"

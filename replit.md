@@ -1,38 +1,45 @@
-# Filta CRM — Replit Notes
+# [Project name]
 
-Next.js 14 + Drizzle + Postgres CRM for Filta Fun Coast / Space Coast. See `README.md` for the full design rationale.
+_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
 
-## Environment
-- Postgres: provisioned via Replit (`DATABASE_URL` etc. set as secrets).
-- Workflow: `Start application` → `npm run dev` (Next.js on port 5000, host 0.0.0.0, served via webview).
-- Node 20.
+## Run & Operate
 
-## Data files (in `data/`)
-- `filta_symphony_leads.csv` — 5,671 rows
-- `260415_223827_billing_summary.csv` — March 2026
-- `260415_224105_billing_summary.csv` — February 2026
-- `260415_224134_billing_summary.csv` — January 2026
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm run typecheck` — full typecheck across all packages
+- `pnpm run build` — typecheck + build all packages
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- Required env: `DATABASE_URL` — Postgres connection string
 
-## Initial load (already run)
-```
-npm run db:generate
-npm run db:migrate
-npm run db:seed       # needs SEED_ADMIN_* env vars
-npm run import:leads  # 3,912 inserted, 1,750 updated
-npm run import:billing # 38 of 93 billing customers matched
-```
+## Stack
 
-Re-running is idempotent. The 55 unmatched billing customers are existing
-customers that have no lead record (per README guidance — can be added manually
-later).
+- pnpm workspaces, Node.js 24, TypeScript 5.9
+- API: Express 5
+- DB: PostgreSQL + Drizzle ORM
+- Validation: Zod (`zod/v4`), `drizzle-zod`
+- API codegen: Orval (from OpenAPI spec)
+- Build: esbuild (CJS bundle)
 
-## Local fixes applied to scaffold
-- `scripts/import_billing.ts`: fixed `files.map(path.basename)` (passing the index
-  as `suffix`) and added quote/whitespace stripping in `parseCustomerHeader`.
-- `package.json`: `dev` now runs `next dev -p 5000 -H 0.0.0.0` so the Replit
-  webview proxy can reach it.
+## Where things live
 
-## Admin user (seed)
-- Email: `brett@telos.ventures`
-- Password: `ChangeMe123!` (change on first login — only used because real value
-  not yet set as a secret).
+_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+
+## Architecture decisions
+
+_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+
+## Product
+
+_Describe the high-level user-facing capabilities of this app once they exist._
+
+## User preferences
+
+_Populate as you build — explicit user instructions worth remembering across sessions._
+
+## Gotchas
+
+_Populate as you build — sharp edges, "always run X before Y" rules._
+
+## Pointers
+
+- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

@@ -1,0 +1,1 @@
+- [Filta CRM runtime](filta-crm-runtime.md) — The CRM must keep its Next App Router runtime during workspace migrations; a Vite-only port would regress server actions and route handlers.

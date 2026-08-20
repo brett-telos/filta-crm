@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
-
-npm install --no-audit --no-fund --prefer-offline
+pnpm install --frozen-lockfile
+pnpm --filter db push
