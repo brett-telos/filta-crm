@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
-pnpm install --frozen-lockfile
-pnpm --filter @workspace/db push
+
+npm install --no-audit --no-fund --prefer-offline
