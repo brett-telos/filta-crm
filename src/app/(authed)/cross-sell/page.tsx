@@ -179,6 +179,24 @@ export default async function CrossSellPage({
   );
   const totalFsEstimate = totalFfMonthly * FS_ESTIMATE_MULT;
 
+  // Live penetration numbers for the headline. This used to be hardcoded
+  // "5 of your 97 customers" from the Feb 2026 discovery; after the QBO
+  // billing correction (19 FS customers, later 25+) that read stale, so we
+  // count from the data on every render.
+  const countsResult = await db.execute(sql`
+    select
+      count(*)::int as customers,
+      count(*) filter (
+        where coalesce((service_profile->'fs'->>'active')::boolean, false)
+      )::int as fs_customers
+    from accounts
+    where account_status = 'customer' and deleted_at is null
+  `);
+  const counts = (countsResult as any).rows[0] as {
+    customers: number;
+    fs_customers: number;
+  };
+
   return (
     <div className="space-y-5">
       <div>
@@ -187,8 +205,9 @@ export default async function CrossSellPage({
         </h1>
         <p className="max-w-2xl text-sm text-slate-600">
           FiltaFry customers who don't yet have FiltaClean. FS carries ~70%
-          gross margin and only 5 of your 97 customers have it today. One
-          click creates an FS opportunity and drops it into the pipeline.
+          gross margin and {counts.fs_customers} of your {counts.customers}{" "}
+          customers have it today. One click creates an FS opportunity and
+          drops it into the pipeline.
         </p>
       </div>
 

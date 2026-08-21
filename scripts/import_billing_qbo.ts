@@ -26,7 +26,8 @@
 // Input: data/qbo_billing_2026.csv (built from the QBO "Sales by Customer
 // Detail" export, Jan-May 2026, 5-month average, "The Filta Group"
 // HQ/intercompany line excluded). Columns:
-//   company_name, ff_monthly, fs_monthly, fg_monthly, last_service_date
+//   company_name, ff_monthly, fs_monthly, fg_monthly, fd_monthly, last_service_date
+//   (fd_monthly optional; absent = leave existing fd untouched)
 //
 // Usage:
 //   QBO_BILLING_CSV=data/qbo_billing_2026.csv npm run import:billing:qbo
@@ -43,6 +44,27 @@ import type { ServiceProfile } from "../src/db/schema";
 const DEFAULT_CSV = path.join(process.cwd(), "data", "qbo_billing_2026.csv");
 const CSV_PATH = process.env.QBO_BILLING_CSV ?? DEFAULT_CSV;
 
+// ----------------------------------------------------------------------------
+// Explicit QBO-name -> CRM-account-name overrides (checked before any
+// matching). Added Aug 2026 after the loose-match review: these QBO display
+// names normalize differently from their canonical accounts, so strict mode
+// alone can't route them. SKIP entries are QBO artifacts to ignore entirely.
+// ----------------------------------------------------------------------------
+const QBO_NAME_OVERRIDES: Record<string, string> = {
+  "Jimmy Hula's -Ormond Beach": "Jimmy Hula's - Ormond Beach",
+  "Jimmy Hulas-Port Orange": "Jimmy Hula's - Port Orange",
+  "Halifax Health Deltona": "Halifax Health - Deltona",
+  "Halifax Health-France Tower": "Halifax Health - France Tower",
+  "Halifax Health-Main Kitchen": "Halifax Health - Main Kitchen",
+  "Canteen-Embraer Aircraft - 61902": "Canteen-Embraer",
+  "Lenox at Merritt Island (Pacifica Residential Living)": "The Lenox at Merritt Island",
+  "Zon Beachside ALF": "Zon Beachside",
+  "Nice N Easy Oyster Bar and Grille": "Nice & Easy Oyster Bar & Grill",
+};
+
+/** QBO records that must never import (deleted/artifact rows). */
+const QBO_SKIP = new Set(["Cast & Crew (deleted)"]);
+
 const LOOSE =
   (process.env.LOOSE_MATCH ?? "").toLowerCase() === "1" ||
   (process.env.LOOSE_MATCH ?? "").toLowerCase() === "true";
@@ -52,6 +74,8 @@ type QboRow = {
   ff: number;
   fs: number;
   fg: number;
+  /** null = the CSV has no fd_monthly column; leave the existing fd alone. */
+  fd: number | null;
   lastServiceDate: string | null;
 };
 
@@ -102,6 +126,9 @@ function readQboRows(csvPath: string): QboRow[] {
       ff: parseAmount(r.ff_monthly),
       fs: parseAmount(r.fs_monthly),
       fg: parseAmount(r.fg_monthly),
+      // fd added Aug 2026 (FiltaDrain tracking). Older CSVs without the
+      // column must NOT zero out existing fd flags — hence null, not 0.
+      fd: r.fd_monthly === undefined ? null : parseAmount(r.fd_monthly),
       lastServiceDate: (r.last_service_date ?? "").trim() || null,
     });
   }
@@ -262,6 +289,7 @@ async function main() {
     ff: number;
     fs: number;
     fg: number;
+    fd: number | null;
     lastServiceDate: string | null;
     sources: string[];
   };
@@ -270,8 +298,10 @@ async function main() {
   const looseMatches: { from: string; to: string; how: string }[] = [];
 
   for (const r of qboRows) {
-    const key = normalizeCompany(r.displayName);
-    const keyLoose = normalizeCompanyLoose(r.displayName);
+    if (QBO_SKIP.has(r.displayName)) continue;
+    const matchName = QBO_NAME_OVERRIDES[r.displayName] ?? r.displayName;
+    const key = normalizeCompany(matchName);
+    const keyLoose = normalizeCompanyLoose(matchName);
     const m = matchAccount(key, keyLoose, accountsByName, accountsByLoose, allAccounts);
     if (!m) {
       unmatched.push(r.displayName);
@@ -281,11 +311,12 @@ async function main() {
       looseMatches.push({ from: r.displayName, to: m.matchedTo, how: m.how });
     }
     const agg = byAccount.get(m.id) ?? {
-      ff: 0, fs: 0, fg: 0, lastServiceDate: null, sources: [],
+      ff: 0, fs: 0, fg: 0, fd: null as number | null, lastServiceDate: null, sources: [],
     };
     agg.ff += r.ff;
     agg.fs += r.fs;
     agg.fg += r.fg;
+    if (r.fd !== null) agg.fd = (agg.fd ?? 0) + r.fd;
     if (
       r.lastServiceDate &&
       (!agg.lastServiceDate || r.lastServiceDate > agg.lastServiceDate)
@@ -312,9 +343,14 @@ async function main() {
       ff: { active: agg.ff > 0, monthly_revenue: round2(agg.ff), last_service_date: last },
       fs: { active: agg.fs > 0, monthly_revenue: round2(agg.fs), last_service_date: last },
       fg: { active: agg.fg > 0, monthly_revenue: round2(agg.fg), last_service_date: last },
+      // FiltaDrain: only written when the CSV carries an fd_monthly column
+      // (Aug 2026+). fb stays Symphony-sourced (active/inactive flag only).
+      ...(agg.fd !== null
+        ? { fd: { active: agg.fd > 0, monthly_revenue: round2(agg.fd), last_service_date: last } }
+        : {}),
     };
 
-    const hasRevenue = agg.ff > 0 || agg.fs > 0 || agg.fg > 0;
+    const hasRevenue = agg.ff > 0 || agg.fs > 0 || agg.fg > 0 || (agg.fd ?? 0) > 0;
 
     await db
       .update(accounts)
